@@ -1,0 +1,214 @@
+"""Détection des kills du streamer à l'image (Valorant).
+
+Principe (calibré sur les VOD de Sky, 1080p) :
+- À chaque kill du joueur, Valorant affiche un emblème en bas au centre de l'écran, pendant ~1,5 à 2 s.
+  Son dessin dépend du skin de l'arme, mais c'est toujours un motif circulaire (cercle complet ou arcs)
+  centré au même endroit. On mesure donc « y a-t-il des contours circulaires centrés à cet endroit ? ».
+- Quand le joueur est mort et regarde un coéquipier, Valorant affiche les kills de ce coéquipier avec
+  le même emblème. Mais il affiche aussi en bas à gauche la carte du joueur regardé, avec l'icône
+  « < souris > CHANGER DE JOUEUR ». On repère cette icône (sans lire de texte, donc quelle que soit
+  la langue du jeu) pour écarter ces kills-là.
+
+La vidéo n'est lue qu'une fois, à quelques images par seconde, en ne décodant que deux petites zones.
+Les mesures brutes sont renvoyées (et peuvent être sauvegardées) pour régler les seuils sans relire la vidéo.
+"""
+from __future__ import annotations
+
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+ASSETS = Path(__file__).parent / "assets"
+
+# --- Géométrie, en fraction de l'image (référence 1920x1080) ---
+BANNER_CENTER = (960 / 1920, 862 / 1080)
+BANNER_SIZE = 240 / 1080            # côté du carré analysé autour de l'emblème (en fraction de la hauteur)
+SPEC_BOX = (100 / 1920, 834 / 1080, 80 / 1920, 56 / 1080)  # zone de recherche de l'icône « < souris > »
+
+REF_H = 1080
+BANNER_PX = 240                     # taille de travail du carré de l'emblème
+SPEC_W, SPEC_H = 80, 56             # taille de travail de la zone de l'icône
+
+# --- Seuils (réglés sur les VOD de Sky ; voir tests/test_kill_detect.py) ---
+BANNER_ON = 22.0                    # score d'emblème au-dessus duquel on considère l'emblème affiché
+BANNER_PEAK_MIN = 30.0              # un vrai emblème atteint au moins ce score (le style « X rouge » monte à ~32-50)
+BANNER_MIN_DUR = 1.0                # un emblème reste affiché ~1,5 à 2 s (s)
+BANNER_MAX_DUR = 8.0                # au-delà, ce n'est pas un emblème (écran de choix d'agent…) (s)
+NOISY_MARGIN = 15.0                 # on ignore aussi ce qui est à moins de 15 s d'un tel passage (s)
+SPECTATE_ON = 0.6                   # ressemblance minimale avec l'icône « < souris > »
+# Sur la VOD du 01/11 : médiane de ressemblance ≤ 0,31 pour les kills de Sky, ≥ 0,78 en spectateur.
+
+
+@dataclass
+class Scan:
+    """Mesures brutes, image par image."""
+    fps: float
+    t: np.ndarray            # temps (s) depuis le début de la vidéo
+    banner: np.ndarray       # score d'emblème
+    spectate: np.ndarray     # ressemblance avec l'icône de spectateur (0..1)
+
+    def save(self, path: str | Path):
+        np.savez_compressed(path, fps=self.fps, t=self.t, banner=self.banner, spectate=self.spectate)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Scan":
+        d = np.load(path)
+        return cls(float(d["fps"]), d["t"], d["banner"], d["spectate"])
+
+
+@dataclass
+class KillEvent:
+    t: float                 # début de l'emblème (s)
+    duration: float
+    peak: float              # score d'emblème maximum
+    spectating: bool         # True = kill d'un coéquipier regardé après la mort du streamer
+    meta: dict = field(default_factory=dict)
+
+
+# ---------- Mesures sur une image ----------
+
+def banner_score(img: np.ndarray) -> float:
+    """Force des contours circulaires centrés dans le carré (gris, BANNER_PX x BANNER_PX).
+
+    On passe en coordonnées polaires autour du centre : un cercle (ou de grands arcs) devient une
+    ligne verticale nette. Pour chaque rayon, on prend le 70e centile du gradient radial sur tous les
+    angles : un cercle complet ou des arcs couvrant au moins ~30 % du tour donnent une valeur forte,
+    alors qu'un décor de jeu (murs, traits droits) n'en donne presque jamais.
+    """
+    s = img.shape[0]
+    f = img.astype(np.float32)
+    pol = cv2.warpPolar(f, (s // 2, 360), (s / 2, s / 2), s / 2, cv2.WARP_POLAR_LINEAR)
+    lo, hi = int(s / 2 * 20 / 120), int(s / 2 * 110 / 120)
+    g = np.abs(np.diff(pol, axis=1))[:, lo:hi]
+    return float(np.percentile(g, 70, axis=0).max())
+
+
+_ICON: np.ndarray | None = None
+
+
+def _icon() -> np.ndarray:
+    global _ICON
+    if _ICON is None:
+        _ICON = cv2.imread(str(ASSETS / "spectate_icon.png"), cv2.IMREAD_GRAYSCALE)
+        if _ICON is None:
+            raise FileNotFoundError("assets/spectate_icon.png introuvable")
+    return _ICON
+
+
+def spectate_score(img: np.ndarray) -> float:
+    """Ressemblance (0..1) entre la zone en bas à gauche et l'icône « < souris > » du mode spectateur."""
+    icon = _icon()
+    if float(img.std()) < 2.0:      # zone unie : pas d'icône (et évite une division par zéro)
+        return 0.0
+    res = cv2.matchTemplate(img, icon, cv2.TM_CCOEFF_NORMED)
+    return float(np.nan_to_num(res).max())
+
+
+# ---------- Lecture de la vidéo ----------
+
+def _probe(video: str) -> tuple[int, int, float]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration",
+         "-of", "default=nw=1", video], capture_output=True, text=True, check=True).stdout
+    vals = dict(line.split("=", 1) for line in out.split() if "=" in line)
+    return int(vals["width"]), int(vals["height"]), float(vals["duration"])
+
+
+def _filter(w: int, h: int, fps: float) -> str:
+    """Filtre FFmpeg : 2 petites zones par image, remises à une taille fixe, empilées l'une sur l'autre."""
+    bs = round(BANNER_SIZE * h)
+    bx, by = round(BANNER_CENTER[0] * w - bs / 2), round(BANNER_CENTER[1] * h - bs / 2)
+    sx, sy, sw, sh = (round(SPEC_BOX[0] * w), round(SPEC_BOX[1] * h), round(SPEC_BOX[2] * w), round(SPEC_BOX[3] * h))
+    return (f"fps={fps},format=gray,split[a][b];"
+            f"[a]crop={bs}:{bs}:{bx}:{by},scale={BANNER_PX}:{BANNER_PX}[ban];"
+            f"[b]crop={sw}:{sh}:{sx}:{sy},scale={SPEC_W}:{SPEC_H},pad={BANNER_PX}:{SPEC_H}[spec];"
+            f"[ban][spec]vstack")
+
+
+def _scan_segment(video: str, w: int, h: int, start: float, dur: float, fps: float):
+    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an",
+           "-filter_complex", _filter(w, h, fps), "-f", "rawvideo", "-"]
+    fh = BANNER_PX + SPEC_H
+    frame_bytes = BANNER_PX * fh
+    banner, spec = [], []
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:
+        while True:
+            buf = p.stdout.read(frame_bytes)
+            if len(buf) < frame_bytes:
+                break
+            fr = np.frombuffer(buf, np.uint8).reshape(fh, BANNER_PX)
+            banner.append(banner_score(fr[:BANNER_PX]))
+            spec.append(spectate_score(fr[BANNER_PX:, :SPEC_W]))
+    return banner, spec
+
+
+def scan_video(video: str, fps: float = 4.0, start: float = 0.0, duration: float | None = None,
+               workers: int = 4, segment: float = 600.0, progress=None) -> Scan:
+    """Mesure l'emblème et l'icône de spectateur sur toute la vidéo (ou une partie).
+
+    La vidéo est découpée en segments de `segment` secondes lus en parallèle par `workers` FFmpeg.
+    """
+    w, h, total = _probe(video)
+    end = total if duration is None else min(total, start + duration)
+    seg_starts = list(np.arange(start, end, segment))
+    results: dict[float, tuple] = {}
+    done = 0
+
+    def job(s0):
+        return s0, _scan_segment(video, w, h, s0, min(segment, end - s0), fps)
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        for s0, res in ex.map(job, seg_starts):
+            results[s0] = res
+            done += 1
+            if progress:
+                progress(done / len(seg_starts), f"Analyse de l'image : {done}/{len(seg_starts)}")
+
+    t, banner, spec = [], [], []
+    for s0 in seg_starts:
+        b, s = results[s0]
+        t.extend(s0 + i / fps for i in range(len(b)))
+        banner.extend(b)
+        spec.extend(s)
+    return Scan(fps, np.array(t), np.array(banner, np.float32), np.array(spec, np.float32))
+
+
+# ---------- Des mesures aux kills ----------
+
+def _segments(on: np.ndarray) -> list[tuple[int, int]]:
+    """Plages [i, j[ où `on` est vrai."""
+    edges = np.diff(np.r_[0, on.astype(np.int8), 0])
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+
+
+def find_kills(scan: Scan, banner_on: float = BANNER_ON, peak_min: float = BANNER_PEAK_MIN,
+               min_dur: float = BANNER_MIN_DUR, max_dur: float = BANNER_MAX_DUR,
+               noisy_margin: float = NOISY_MARGIN, spectate_on: float = SPECTATE_ON) -> list[KillEvent]:
+    """Repère chaque apparition de l'emblème (= un kill) et dit si le streamer était spectateur.
+
+    Écarte : les apparitions trop courtes ou trop faibles, celles qui durent trop longtemps (écran de
+    choix d'agent, dont le décor contient des cercles), et tout ce qui est proche de ces dernières.
+    """
+    segs = _segments(scan.banner >= banner_on)
+    noisy = [scan.t[i] for i, j in segs if (j - i) / scan.fps > max_dur]
+    noisy += [scan.t[j - 1] for i, j in segs if (j - i) / scan.fps > max_dur]
+    events: list[KillEvent] = []
+    for i, j in segs:
+        dur = (j - i) / scan.fps
+        peak = float(scan.banner[i:j].max())
+        t = float(scan.t[i])
+        if not (min_dur <= dur <= max_dur) or peak < peak_min:
+            continue
+        if any(abs(t - x) <= noisy_margin for x in noisy):
+            continue
+        spectating = float(np.median(scan.spectate[i:j])) >= spectate_on
+        events.append(KillEvent(t=t, duration=dur, peak=peak, spectating=spectating))
+    return events
+
+
+def streamer_kills(scan: Scan, **kw) -> list[KillEvent]:
+    return [e for e in find_kills(scan, **kw) if not e.spectating]

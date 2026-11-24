@@ -1,0 +1,191 @@
+# Sklip — historique de la conversation et état du projet
+
+Ce fichier remplace la conversation Claude d'origine (projet « Clip Montage »), pour reprendre le travail
+dans Claude Code sans rien perdre. Dernière mise à jour : 24/11/2026, 22 h 35.
+
+---
+
+## 1. L'idée de départ (demande initiale de Sky, conversation sur téléphone)
+
+> « Je voudrais créer une appli ou quelque chose comme ça pour mon PC qui récupère les moments importants
+> de mon stream Twitch, comme par exemple les raids, les peaks de viewers, mais aussi chaque kill que je
+> fais sur Valorant, mais aussi les aces etc., et que je donne un thème, par exemple "kills" ou
+> "moments drôles", et que le montage se fasse tout seul, puis que je regarde et valide ou modifie en
+> déplaçant les différents clips. »
+
+Cette première conversation (sur téléphone) a fixé le cahier des charges complet : voir
+`docs/CAHIER-DES-CHARGES.md`. Décisions principales prises à ce moment-là :
+- nom **Sklip** ; appli Windows clé en main, **gratuite**, d'abord pour Sky et ses potes streamers ;
+- **OBS Studio uniquement** ; **Valorant uniquement** (passages hors Valorant repérés automatiquement,
+  utiles pour les thèmes Drôle et Communauté) ;
+- interface **en français**, design sombre gaming, accent violet Twitch ;
+- **tout le périmètre en v1** ;
+- montages **courts, 15 à 60 s** ; découpe **≈ 4 s avant / 2 s après** chaque moment ;
+- formats **16:9 et 9:16** (9:16 par défaut : cam en haut, jeu en bas ; modifiable par clip) ;
+- **sous-titres auto** style TikTok mot par mot, en français ; textes à l'écran (ACE, compteur, pseudo)
+  désactivés par défaut ;
+- musique : soit un morceau de la bibliothèque (coupes calées sur le BPM détecté), soit **sans musique
+  calée sur un BPM choisi** (métronome d'aperçu, BPM dans le nom du fichier, 1re coupe sur le temps 1,
+  musique ajoutée ensuite dans TikTok Studio) ;
+- 5 pistes audio (mix, jeu, micro, Discord, musique), mixeur 4 pistes dans l'éditeur, Discord actif par
+  défaut, **musique coupée par défaut à l'export** (droits d'auteur) ;
+- un **dossier par stream** (`Sklip/Streams/AAAA-MM-JJ_titre/` avec `stats.html`, `moments/`, `montages/`)
+  + écran **Historique** ;
+- analyse au choix : auto à la fin du live / pendant le live (PC puissants, priorité basse) / manuelle ;
+  test de performances au premier lancement pour proposer le mode ;
+- marqueurs manuels : raccourci clavier (marche en jeu), `!clip` (streamer + modos), Stream Deck ;
+- peaks de viewers : critère au choix (record du stream, montée rapide +X % en N minutes, seuil fixe) ;
+- pics de chat : emotes de base + liste perso de mots-clés par streamer (« mdr », « ptdr »…) ;
+- export = fichier sur le PC + ouverture du dossier, **pas de publication automatique** ;
+- mises à jour **automatiques au lancement** via GitHub ; Sklip **ne se lance pas avec Windows** ;
+- multi-streamers : toutes résolutions (dont 4:3 étirée), tous GPU (NVIDIA / AMD / Intel / CPU),
+  position de webcam réglable.
+
+## 2. Conversation sur PC (24/11/2026, soir)
+
+### 20 h 11 — reprise sur PC
+Sky demande si Claude a la conversation du téléphone → oui via le cahier des charges du projet et la mémoire.
+
+### 20 h 12 — nouvelle exigence importante
+> « Je voudrais aussi que quand le streamer lance ce clip, ça lui change pas ses paramètres OBS, les pistes, etc. »
+
+Conséquences (cahier des charges mis à jour) :
+- plus d'assistant qui reconfigure OBS (avant, Sklip devait créer les 5 pistes dans OBS) ;
+- OBS en **lecture seule** via obs-websocket + **liste blanche** de requêtes ;
+- option « Lancer l'enregistrement OBS au début du live » : appuie seulement sur le bouton, avec les
+  réglages du streamer ; n'arrête que l'enregistrement qu'il a lui-même lancé ;
+- **pistes séparées capturées par Sklip lui-même** (capture audio par application Windows : VALORANT,
+  Discord, lecteur de musique + micro choisi dans Sklip), puis **synchronisées** sur la vidéo OBS par
+  corrélation audio ;
+- si le streamer a déjà des pistes séparées dans son enregistrement, Sklip peut les utiliser ;
+- limite acceptée : sans Sklip ouvert pendant le live (VOD seule), seul le mix est disponible ;
+- l'enregistrement OBS original n'est jamais supprimé ni déplacé.
+
+### 20 h 13 — « tu peux commencer » → version 0.1
+Construit et testé : structure du projet, client OBS lecture seule (+ tests), moments / scores / thèmes /
+sélection, synchro audio, BPM + métronome, rendu FFmpeg 16:9 / 9:16 (cam en haut / en bas / jeu seul,
+4:3 étirée, mix 4 pistes, encodeur GPU auto), dossier de stream + `stats.html`, interface
+(Accueil, Historique, Réglages), pont Electron ↔ moteur Python.
+
+### 22 h 16 — Sky ne va pas live, « pose-moi des questions avant de continuer »
+Réponses de Sky :
+- travailler sur **les 4** : éditeur de montage, connexion Twitch, sous-titres et textes, installeur Windows ;
+- enregistrements pour calibrer : **des VOD Twitch** ;
+- outils sur le PC : « je ne sais pas » ;
+- comptes : **ni GitHub ni appli Twitch Developer** au départ.
+
+### 22 h 19 — liste des VOD de Sky (capture du Tableau de bord Twitch)
+Toutes en 1080p, catégorie VALORANT sauf la dernière :
+| Titre | Date | Durée |
+|---|---|---|
+| SWIFT CHILL | 22/11/2026 | 6:16:35 |
+| RANKED PLAT NEON | 18/11/2026 | 3:19:57 |
+| ranked plat | 15/11/2026 | 5:23:29 |
+| VALO CHILL | 13/11/2026 | 1:57:16 |
+| VALO CHILL | 01/11/2026 | 3:45:36 |
+| Elles veulent faire un live (Just Chatting) | 01/11/2026 | 0:08:48 |
+
+Conseillées pour calibrer : **VALO CHILL du 13/11** (la plus courte) + **RANKED PLAT NEON du 18/11**.
+Constat : plusieurs VOD ont des passages **« Son coupé »** (musique retirée par Twitch) → l'audio des VOD
+n'est pas fiable ; la webcam de Sky est **en haut à gauche**.
+
+### 22 h 22 — vérification du PC
+Résultats (Claude a regardé les dossiers ; Sky a confirmé dans l'invite de commandes) :
+- Node.js **v24.22.0** ✅, Python **3.15.0** ✅ (trop récent pour certaines libs → Python 3.13 via uv pour Sklip),
+  **uv** ✅, Git ✅, OBS Studio ✅ ;
+- FFmpeg absent → Sky l'a installé : `winget install Gyan.FFmpeg` → **FFmpeg 9.1** ✅
+  (rouvrir l'invite de commandes pour que le PATH soit pris en compte).
+- Sky a un dossier `C:\projets` (contient aussi « Myst of you ») → Sklip vit dans **`C:\projets\Sklip`**.
+
+### 22 h 16 → 22 h 28 — version 0.2
+- **Éditeur de montage** (testé dans un navigateur : glisser-déposer, rognage, ajout de raid, lecture, export).
+- **Connexion Twitch** (Device Code Flow, EventSub, Helix) + conversion en moments.
+- **Sous-titres TikTok** mot par mot + textes ACE / KILLS / CLUTCH / pseudo (vérifiés sur images rendues).
+- **Installeur** : PyInstaller + electron-builder + GitHub Actions + FFmpeg embarqué + mises à jour auto.
+- Icône de l'appli (S blanc sur violet + triangle lecture jaune).
+
+### 22 h 29 — comptes de Sky
+- GitHub : **`skyjoytgg`** (dépôt prévu : `skyjoytgg/sklip`, déjà mis dans `app/package.json`).
+- Appli Twitch Developer **« Sklip »** créée (URL `http://localhost`) ; Client ID :
+  **`88d0w53zc9hsemjvt486ekjgmkep9k`** (dans `app/config.json`). Vérifier dans la console Twitch que
+  le type de client est bien **Public** (sinon le Device Code Flow sans secret ne marche pas).
+- Sky a créé `C:\projets\Sklip\vods` et y a mis les VOD.
+
+### 22 h 33 — passage à Claude Code
+Sky veut continuer dans Claude Code « sans rien oublier » → ce fichier + `CLAUDE.md` + le code.
+
+---
+
+## 3. Ce qui est fait (v0.2) — 31 tests moteur + 25 tests appli, tous verts
+
+| Domaine | Fichiers | État |
+|---|---|---|
+| OBS lecture seule | `app/src/main/obs-watcher.js` | ✅ testé avec un faux OBS (pas encore sur le vrai OBS) |
+| Réglages | `app/src/main/settings.js` | ✅ |
+| Pont appli ↔ moteur | `app/src/main/engine-bridge.js`, `engine/sklip_engine/__main__.py` | ✅ testé (commandes JSON) |
+| Moments, thèmes, sélection | `engine/sklip_engine/moments.py`, `selection.py` | ✅ |
+| Synchro des pistes | `engine/sklip_engine/audio_sync.py` | ✅ (précision ~1 ms sur signaux de test) |
+| BPM, grille, métronome | `engine/sklip_engine/beat.py` | ✅ |
+| Rendu | `engine/sklip_engine/render.py` | ✅ (x264 testé ; NVENC/AMF/QSV détectés automatiquement, non testés ici) |
+| Sous-titres et textes | `engine/sklip_engine/overlays.py` + `fonts/Montserrat.ttf` (OFL) | ✅ incrustation ; transcription faster-whisper écrite mais **non testée** (pas installable dans l'environnement de Claude) |
+| Dossier de stream | `engine/sklip_engine/stream_folder.py` | ✅ |
+| Éditeur | `app/src/renderer/editor.jsx`, `editor-model.js` | ✅ testé en navigateur avec données d'exemple |
+| Twitch | `app/src/main/twitch.js`, `twitch-moments.js` | ✅ testé avec de faux serveurs ; **pas encore testé sur le vrai Twitch** |
+| Interface | `app/src/renderer/app.jsx`, `api.js`, `styles.css` | ✅ (Accueil, Montage, Historique, Réglages) |
+| Installeur | `engine/build.bat`, `app/package.json`, `.github/workflows/release.yml` | ✅ écrit ; **jamais construit** (se fera sur GitHub ou sur le PC) |
+
+Points jamais exécutés pour de vrai (à vérifier en premier sur le PC de Sky) :
+1. `npm install` + `npm start` (Electron n'était pas installable dans l'environnement de Claude) ;
+2. connexion au vrai OBS (activer : OBS → Outils → Paramètres du serveur WebSocket) ;
+3. connexion au vrai Twitch avec le Client ID ;
+4. `engine\setup-dev.bat` (uv + Python 3.13) et la transcription faster-whisper ;
+5. `engine\build.bat` (PyInstaller) et l'installeur.
+
+## 4. À faire (ordre proposé)
+
+1. **Vérifier que tout démarre sur le PC** (liste ci-dessus).
+2. **Détection à l'image sur les VOD de `vods/`** (OpenCV) :
+   - bannière de kill du joueur (icône centrale en bas, n'apparaît que pour SES kills ; 1 à 5 → multi-kill / ace) ;
+   - killfeed en haut à droite (confirmation, nom du joueur surligné) ;
+   - HUD du haut (joueurs vivants des deux équipes, score des rounds) → clutchs, fin de round ;
+   - présence du HUD Valorant → passages Valorant / hors Valorant ;
+   - coordonnées normalisées selon la résolution (16:9, 4:3 étirée) ; analyse à quelques images/s
+     (pas besoin de 60 i/s), décodage FFmpeg réduit pour aller vite ;
+   - outil de calibrage : extraire des images autour des kills et vérifier à l'œil.
+3. **Capture audio** pendant le live : module natif Windows (WASAPI, capture par processus) pour
+   VALORANT, Discord, lecteur de musique + micro.
+4. **Rires / cris** (pistes micro + Discord), **morts drôles** (mort + réaction chat/audio).
+5. **Marqueurs** : raccourci clavier global (marche en jeu), Stream Deck.
+6. **Relier le tout** : fin du live → analyse → dossier de stream → éditeur ouvert avec les clips proposés
+   (aujourd'hui l'éditeur utilise `app/src/renderer/demo-data.js`).
+7. Premier lancement : assistant (connexion OBS, Twitch, position de la webcam, test de performances).
+8. Mettre le code sur GitHub (`skyjoytgg/sklip`), ajouter la variable `SKLIP_TWITCH_CLIENT_ID`, première release.
+
+---
+
+## 5. Claude Code — 24/11/2026, soirée
+
+- Environnement installé : `engine\.venv` (Python 3.13), `app\node_modules` ; 40 tests moteur + 25 tests appli verts ; `git init` (rien commité).
+  - `setup-dev.bat` / `build.bat` étaient en fins de ligne Unix → mal lus par cmd ; remis en CRLF (+ `.gitattributes`).
+  - uv n'arrivait pas à suivre son lien vers Python 3.13 : venv créé en donnant directement
+    `%APPDATA%\uv\python\cpython-3.13.18-windows-x86_64-none\python.exe`.
+- VOD présentes : VALO CHILL du 01/11 (3 h 45, fichier `2916761426-…`) et RANKED PLAT NEON du 18/11 (3 h 20, `2932517166-…`).
+- **Détection des kills à l'image : `engine/sklip_engine/kill_detect.py`** (commande moteur `detect-kills`).
+  - Emblème de kill en bas au centre (centre 960,862 en 1080p) ; son dessin dépend du skin, mais il est
+    toujours circulaire (cercle complet ou arcs) → score « contours circulaires centrés » en coordonnées polaires.
+  - **Kills des mates regardés après la mort** (demande de Sky) : écartés grâce à l'icône « < souris > »
+    de la carte « CHANGER DE JOUEUR » en bas à gauche (`assets/spectate_icon.png`), indépendante de la langue.
+  - Faux positifs de l'écran de choix d'agent écartés (cercles affichés longtemps).
+  - Sur la VOD du 01/11 : 70 kills de Sky, 108 kills de mates écartés ; les 4 kills donnés par Sky retrouvés
+    (34:35, 43:10, 49:51, 52:48) ; les 70 emblèmes vérifiés à l'œil.
+  - Vitesse : ~41 min pour 3 h 45 (CPU, 4 i/s). À accélérer.
+- Reste à faire pour cette étape : regrouper les kills par round (multi-kills, aces), clutchs (HUD du haut),
+  confirmation par le fil des kills en haut à droite (pseudo du streamer), deux kills enchaînés comptés comme un seul,
+  autres résolutions (4:3 étirée), VOD du 18/11.
+- **Rounds, multi-kills, aces : `engine/sklip_engine/rounds.py`** (idée de Sky : le score en haut change à chaque round).
+  - Score lu seulement sur les images clés (`-skip_frame nokey`, une toutes les ~4 s) → toute la VOD en ~1 min 40.
+  - Chiffres reconnus par modèles (`assets/score_digits.npz`, extraits de la VOD du 01/11) ; somme des scores
+    qui monte = round suivant, qui retombe = nouvelle partie.
+  - VOD du 01/11 : 16 parties (beaucoup d'Escarmouche 2v2), 139 rounds ; 70 kills de Sky → 50 kills seuls +
+    9 multi-kills (8 × 2K, 1 × 4K à 2:38:14 → 2:38:47, score resté 2-2), pas d'ace.
+  - Un multi-kill/ace = un seul moment (au dernier kill, `meta.t_start` = premier kill) → un seul clip qui couvre tout.

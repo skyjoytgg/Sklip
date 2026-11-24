@@ -1,0 +1,249 @@
+"""Rendu des montages avec FFmpeg : découpe, mise en page 16:9 / 9:16, mix des pistes, export."""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+
+from .overlays import Word, build_ass, ass_filter, transcribe
+
+TRACKS = ("game", "mic", "discord", "music")
+# Discord actif par défaut ; musique coupée par défaut à l'export (droits d'auteur).
+DEFAULT_VOLUMES = {"game": 1.0, "mic": 1.0, "discord": 1.0, "music": 0.0}
+
+HW_ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv")
+_encoder_cache: str | None = None
+
+
+def detect_encoder(force: str | None = None) -> str:
+    """Choisit l'encodeur : NVIDIA (NVENC) > AMD (AMF) > Intel (QSV) > CPU (x264).
+    Chaque encodeur matériel est testé pour de vrai (il peut être listé sans GPU compatible)."""
+    global _encoder_cache
+    if force:
+        return force
+    if _encoder_cache:
+        return _encoder_cache
+    listed = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    for enc in HW_ENCODERS:
+        if enc not in listed:
+            continue
+        ok = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2",
+                             "-c:v", enc, "-f", "null", "-"], capture_output=True).returncode == 0
+        if ok:
+            _encoder_cache = enc
+            return enc
+    _encoder_cache = "libx264"
+    return _encoder_cache
+
+
+def encoder_args(enc: str) -> list[str]:
+    if enc == "h264_nvenc":
+        return ["-c:v", enc, "-preset", "p5", "-cq", "20", "-pix_fmt", "yuv420p"]
+    if enc == "h264_amf":
+        return ["-c:v", enc, "-quality", "quality", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22", "-pix_fmt", "yuv420p"]
+    if enc == "h264_qsv":
+        return ["-c:v", enc, "-global_quality", "21", "-pix_fmt", "nv12"]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+
+
+@dataclass
+class Rect:
+    """Zone normalisée (0..1) dans l'image source. Ex. la webcam du streamer."""
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+@dataclass
+class RenderClip:
+    start: float
+    end: float
+    layout: str = "cam_top"                       # cam_top | cam_bottom | game_only
+    volumes: dict = field(default_factory=dict)   # surcharge par clip
+    moments: list = field(default_factory=list)   # moments du clip (pour les textes à l'écran)
+    words: list | None = None                     # sous-titres déjà connus (sinon transcription)
+
+
+@dataclass
+class TrackFile:
+    path: str
+    offset: float = 0.0   # vidéo(t) = piste(t - offset) — voir audio_sync
+
+
+@dataclass
+class MontageSpec:
+    video: str
+    clips: list[RenderClip]
+    output: str
+    fmt: str = "9x16"                              # 9x16 | 16x9
+    cam: Rect | None = None                        # position webcam (réglable par streamer)
+    tracks: dict[str, TrackFile] = field(default_factory=dict)  # pistes Sklip ; vide = mix seul
+    volumes: dict = field(default_factory=lambda: dict(DEFAULT_VOLUMES))
+    fade: float = 0.12                              # transition courte entre les clips
+    fps: int = 60
+    music_file: str | None = None                  # musique de la bibliothèque (optionnelle)
+    music_start: float = 0.0                       # premier temps de la musique
+    encoder: str | None = None
+    texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
+    subtitles: bool = False                         # sous-titres auto mot par mot (français)
+
+
+def probe(path: str) -> dict:
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=width,height:format=duration", "-of", "default=nw=1", path],
+                         capture_output=True, text=True, check=True).stdout
+    info = dict(line.split("=", 1) for line in out.strip().splitlines() if "=" in line)
+    return {"width": int(info["width"]), "height": int(info["height"]), "duration": float(info["duration"])}
+
+
+def _even(v: float) -> int:
+    return max(2, int(round(v / 2)) * 2)
+
+
+def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
+                 dur: float, fade: float, post: str = "") -> str:
+    """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
+    (ex. incrustation des sous-titres)."""
+    fades = f",{post}" if post else ""
+    if fade > 0 and dur > 2 * fade:
+        fades += f",fade=t=in:st=0:d={fade},fade=t=out:st={dur - fade:.3f}:d={fade}"
+
+    if fmt == "16x9":
+        return (f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}{fades}[v]")
+
+    W, H = 1080, 1920
+    if layout == "game_only" or cam is None:
+        # Recadrage central du jeu en 9:16. Fonctionne aussi pour les résolutions 4:3 étirées.
+        cw = _even(src_h * W / H)
+        return (f"[0:v]crop={cw}:{src_h}:(iw-{cw})/2:0,scale={W}:{H},setsar=1,fps={fps}{fades}[v]")
+
+    cam_h, game_h = 640, H - 640
+    cx, cy = _even(cam.x * src_w), _even(cam.y * src_h)
+    cw, ch = _even(cam.w * src_w), _even(cam.h * src_h)
+    # Jeu : bande centrale au ratio 1080:1280, pleine hauteur.
+    gw = _even(min(src_w, src_h * W / game_h))
+    cam_chain = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{cam_h}:force_original_aspect_ratio=increase,"
+                 f"crop={W}:{cam_h}")
+    game_chain = f"crop={gw}:{src_h}:(iw-{gw})/2:0,scale={W}:{game_h}"
+    order = "[cam][game]" if layout == "cam_top" else "[game][cam]"
+    return (f"[0:v]split=2[a][b];[a]{cam_chain}[cam];[b]{game_chain}[game];"
+            f"{order}vstack=inputs=2,setsar=1,fps={fps}{fades}[v]")
+
+
+def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str, ass_file: str | None = None) -> list[str]:
+    dur = clip.end - clip.start
+    cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{clip.start:.3f}", "-t", f"{dur:.3f}", "-i", spec.video]
+    vols = {**DEFAULT_VOLUMES, **spec.volumes, **clip.volumes}
+    audio_parts, labels = [], []
+
+    active = [(name, tf) for name, tf in spec.tracks.items() if name in TRACKS and vols.get(name, 0) > 0]
+    if spec.tracks:
+        for i, (name, tf) in enumerate(active, start=1):
+            track_t = clip.start - tf.offset         # instant correspondant dans la piste Sklip
+            delay = max(0.0, -track_t)
+            cmd += ["-ss", f"{max(0.0, track_t):.3f}", "-t", f"{dur:.3f}", "-i", tf.path]
+            chain = f"[{i}:a]aresample=48000,volume={vols[name]:.3f}"
+            if delay > 0:
+                chain += f",adelay={int(delay * 1000)}:all=1"
+            audio_parts.append(chain + f",apad,atrim=0:{dur:.3f}[t{i}]")
+            labels.append(f"[t{i}]")
+    else:
+        # Pas de pistes séparées (VOD, ou Sklip ouvert en retard) : son mixé de la vidéo.
+        audio_parts.append(f"[0:a:0]aresample=48000,apad,atrim=0:{dur:.3f}[t0]")
+        labels.append("[t0]")
+
+    if labels:
+        mix = (f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:dropout_transition=0"
+               if len(labels) > 1 else labels[0] + "anull")
+    else:  # tout est coupé
+        mix = f"anullsrc=r=48000:cl=stereo,atrim=0:{dur:.3f}"
+    fade = spec.fade if dur > 2 * spec.fade else 0
+    afade = f",afade=t=in:st=0:d={fade},afade=t=out:st={dur - fade:.3f}:d={fade}" if fade else ""
+    audio_parts.append(f"{mix},aformat=channel_layouts=stereo{afade}[a]")
+
+    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], spec.cam, spec.fps, dur, spec.fade,
+                      post=ass_filter(ass_file) if ass_file else "")
+    cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
+            *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
+    return cmd
+
+
+def render_montage(spec: MontageSpec, progress=None) -> str:
+    """Rend chaque clip puis les assemble. `progress(fraction, message)` est appelé au fil du rendu."""
+    if not spec.clips:
+        raise ValueError("Aucun clip à monter")
+    enc = detect_encoder(spec.encoder)
+    src = probe(spec.video)
+    os.makedirs(os.path.dirname(os.path.abspath(spec.output)), exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="sklip_")
+    try:
+        parts = []
+        for i, clip in enumerate(spec.clips):
+            part = os.path.join(tmp, f"part_{i:03d}.mp4")
+            ass_file = _clip_overlays(spec, clip, os.path.join(tmp, f"part_{i:03d}.ass"))
+            r = subprocess.run(_clip_cmd(spec, clip, src, part, enc, ass_file), capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(f"FFmpeg a échoué sur le clip {i + 1} : {r.stderr[-800:]}")
+            parts.append(part)
+            if progress:
+                progress((i + 1) / (len(spec.clips) + 1), f"Clip {i + 1}/{len(spec.clips)}")
+        listing = os.path.join(tmp, "list.txt")
+        with open(listing, "w", encoding="utf-8") as f:
+            for p in parts:
+                f.write(f"file '{p}'\n")
+        joined = os.path.join(tmp, "joined.mp4") if spec.music_file else spec.output
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
+                        "-c", "copy", "-movflags", "+faststart", joined], check=True, capture_output=True)
+        if spec.music_file:
+            mv = {**DEFAULT_VOLUMES, **spec.volumes}.get("music", 0.0) or 0.8
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-ss", f"{spec.music_start:.3f}",
+                            "-i", spec.music_file, "-filter_complex",
+                            f"[1:a]volume={mv:.3f}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]",
+                            "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                            "-movflags", "+faststart", spec.output], check=True, capture_output=True)
+        if progress:
+            progress(1.0, "Terminé")
+        return spec.output
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _subtitle_words(spec: MontageSpec, clip: RenderClip) -> list[Word]:
+    if clip.words is not None:
+        return [w if isinstance(w, Word) else Word(**w) for w in clip.words]
+    if not spec.subtitles:
+        return []
+    # Piste micro séparée si disponible (meilleure reconnaissance), sinon son mixé de la vidéo.
+    mic = spec.tracks.get("mic")
+    if mic:
+        start = clip.start - mic.offset
+        return transcribe(mic.path, max(0.0, start), clip.end - mic.offset)
+    return transcribe(spec.video, clip.start, clip.end)
+
+
+def _clip_overlays(spec: MontageSpec, clip: RenderClip, path: str) -> str | None:
+    content = build_ass(spec.fmt, clip.end - clip.start, _subtitle_words(spec, clip), clip.moments,
+                        clip.start, spec.texts)
+    if not content:
+        return None
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
+def export_moment(video: str, start: float, end: float, output: str, encoder: str | None = None) -> str:
+    """Exporte un moment seul en 16:9 (dossier moments/ du stream), son mixé d'origine."""
+    spec = MontageSpec(video=video, clips=[RenderClip(start, end)], output=output, fmt="16x9",
+                       fade=0, encoder=encoder)
+    return render_montage(spec)
+
+
+def montage_filename(theme: str, fmt: str, bpm: float | None = None) -> str:
+    name = f"sklip_{theme}_{fmt}"
+    if bpm:
+        name += f"_{int(round(bpm))}bpm"
+    return name + ".mp4"

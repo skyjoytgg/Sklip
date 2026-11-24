@@ -1,0 +1,64 @@
+{
+  "name": "sklip",
+  "productName": "Sklip",
+  "version": "0.1.0",
+  "description": "Montage automatique des moments forts de tes streams Twitch Valorant",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "build:ui": "esbuild src/renderer/app.jsx --bundle --outfile=dist/renderer.js --jsx=automatic --loader:.js=jsx --define:process.env.NODE_ENV=\\\"production\\\" --minify",
+    "start": "npm run build:ui && electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "npm run build:ui && electron-builder --win nsis --publish never",
+    "release": "npm run build:ui && node scripts/write-config.js && electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0"
+  },
+  "build": {
+    "appId": "fr.sklip.app",
+    "productName": "Sklip",
+    "files": [
+      "src/main/**",
+      "src/preload.js",
+      "src/renderer/index.html",
+      "src/renderer/styles.css",
+      "dist/**",
+      "config.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../engine/dist/sklip-engine",
+        "to": "engine"
+      },
+      {
+        "from": "../vendor/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Sklip-Setup-${version}.exe",
+      "shortcutName": "Sklip"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "skyjoytgg",
+        "repo": "sklip"
+      }
+    ]
+  }
+}
