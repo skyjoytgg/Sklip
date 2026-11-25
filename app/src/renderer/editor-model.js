@@ -349,6 +349,13 @@ function friendForRender(c) {
 }
 
 /** Webcam d'un clip : celle de sa scène OBS si on la connaît (sauf webcam réglée à la main pour les clips de jeu). */
+/** « Cam en grand » avec une petite webcam (moins de la moitié de la hauteur, comme le moteur) : l'image sera floue. */
+const FULL_MIN_H = 0.5;
+function blurryFull(c, cam, camManual = false) {
+  const k = c && c.layout === 'cam_full' ? clipCam(c, cam, camManual) : null;
+  return !!(k && k.h < FULL_MIN_H);
+}
+
 function clipCam(c, cam, camManual = false) {
   if (!cam || !c.cam) return cam || null;
   return c.layout === 'cam_full' || !camManual ? c.cam : cam;
@@ -383,7 +390,7 @@ function fmtTime(s) {
 
 module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
-  clipCam, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
+  clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
   isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,

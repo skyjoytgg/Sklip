@@ -130,3 +130,12 @@ test('éditeur : « Cam en grand » garde le cadrage sur le visage trouvé par l
   const spec = E.toRenderSpec(p, { video: 'v.mkv', output: 'o.mp4', cam: { x: 0, y: 0, w: 0.2, h: 0.3 } });
   assert.deepStrictEqual(spec.clips.map((c) => c.focus), [{ x: 0.7, y: 0.3 }, undefined]);
 });
+
+test('éditeur : « Cam en grand » avec une petite webcam → proposition « ce sera flou »', () => {
+  const E = require('../src/renderer/editor-model');
+  const small = { x: 0, y: 0, w: 0.22, h: 0.3 };
+  assert.strictEqual(E.blurryFull({ layout: 'cam_full' }, small), true);                                   // webcam du montage
+  assert.strictEqual(E.blurryFull({ layout: 'cam_full', cam: { x: 0.125, y: 0, w: 0.75, h: 1 } }, small), false); // scène Just Chatting
+  assert.strictEqual(E.blurryFull({ layout: 'cam_top' }, small), false);
+  assert.strictEqual(E.blurryFull({ layout: 'cam_full' }, null), false);
+});

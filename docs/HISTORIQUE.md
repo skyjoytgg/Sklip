@@ -522,3 +522,15 @@ Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de 
   « Tout est prêt », « Prêt, N points à vérifier » ou « N problèmes à régler ».
 - Essayé sur le PC de Sky : OBS fermé → rouge avec la marche à suivre ; micro capté, Discord et Spotify vus ; avec le
   faux OBS : scènes, overlay « Logo », 160 Go libres. Requêtes OBS : toujours uniquement des Get….
+- **Installeur construit sur le PC de Sky** (`engine\build.bat` puis `npm run dist`, rien de publié) :
+  Sklip-Setup-0.1.0.exe (619 Mo). Version dépaquetée (`app\dist\win-unpacked\Sklip.exe`) lancée avec un profil de
+  test : démarre, moteur empaqueté OK (commande `focus`, essai du micro de « Vérifier avant le live »).
+- **2e VOD analysée de bout en bout** (3 h 20, 5 parties) : 62 kills, 13 multi-kills, 0 ace / clutch, 76 morts ;
+  passages Valorant / hors jeu retrouvés ; webcam trouvée (en haut à gauche). Montage Kills 30 s = 2 multi-kills
+  (27 s), version 60 s = 5 clips. Drôle / Communauté / Discussion vides sur une VOD (ni micro séparé, ni chat, ni
+  marqueurs) : normal. Copies légères pour le téléphone dans `apercus/` (ignoré par git).
+- Nouveau test `syntax.test.js` : vérifie la syntaxe de tout le processus principal (une erreur dans main.js
+  empêchait Sklip de démarrer et aucun test ne le voyait).
+- **Proposition « ce sera flou »** (éditeur) : un clip mis à la main en « Cam en grand » avec une petite webcam
+  (moins de la moitié de la hauteur, même seuil que le moteur) affiche un conseil en jaune et un bouton
+  « Mettre « Cam en haut » ». Rien n'est imposé.

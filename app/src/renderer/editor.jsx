@@ -453,6 +453,11 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
                       <button key={k} className={clip.layout === k ? 'on' : ''}
                         onClick={() => setProject(M.updateClip(project, clip.id, { layout: k }))}>{v}</button>))}
                   </div>
+                  {M.blurryFull(clip, cam, ['manual', 'project'].includes(camSource)) && (
+                    <div className="blur-tip">
+                      Ta webcam est petite dans ce passage : en grand, l'image sera floue.
+                      <button className="link" onClick={() => setProject(M.updateClip(project, clip.id, { layout: 'cam_top' }))}>Mettre « Cam en haut »</button>
+                    </div>)}
                 </>)}
               <label className={'livemusic' + (M.hasLiveMusic(project, clip) ? ' on' : '')}>
                 <input type="checkbox" checked={M.hasLiveMusic(project, clip)}

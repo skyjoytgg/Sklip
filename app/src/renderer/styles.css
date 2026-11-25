@@ -347,3 +347,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .pc-row.l-warn .pc-dot { background: #fbbf24; }
 .pc-row.l-error .pc-dot { background: #f87171; }
 .pc-row.l-info .pc-dot { background: #64748b; color: #e2e8f0; }
+
+.blur-tip { margin-top: 8px; font-size: 12px; line-height: 1.4; color: #fbbf24; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3); border-radius: 8px; padding: 8px 10px; }
+.blur-tip .link { display: block; margin-top: 4px; }
