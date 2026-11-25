@@ -6,6 +6,7 @@ Sortie : une ligne JSON par message — {"type": "progress"|"result"|"error", ..
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -26,7 +27,8 @@ def emit(kind: str, **data):
 
 def cmd_select(p):
     moments = [Moment(m["type"], m["t"], m.get("score"), m.get("meta", {})) for m in p["moments"]]
-    clips = select_clips(moments, p["theme"], p.get("target", 30), p.get("bpm"), p.get("stream_duration"))
+    clips = select_clips(moments, p["theme"], p.get("target", 30), p.get("bpm"), p.get("stream_duration"),
+                         p.get("speech"))
     return {"clips": [c.to_dict() for c in clips]}
 
 
@@ -34,8 +36,9 @@ def cmd_render(p):
     spec = MontageSpec(
         video=p["video"], output=p["output"], fmt=p.get("fmt", "9x16"),
         clips=[RenderClip(c["start"], c["end"], c.get("layout", "cam_top"), c.get("volumes", {}),
-                          c.get("moments", []), c.get("words"), c.get("friend")) for c in p["clips"]],
-        cam=Rect(**p["cam"]) if p.get("cam") else None,
+                          c.get("moments", []), c.get("words"), c.get("friend"),
+                          Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None) for c in p["clips"]],
+        cam=Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") and p["cam"].get("enabled", True) else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
         volumes={**MontageSpec.__dataclass_fields__["volumes"].default_factory(), **p.get("volumes", {})},
         texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")), auto_mix=p.get("auto_mix", True),
@@ -123,7 +126,7 @@ def cmd_analyze(p):
     return analyze_stream(p["video"], p["root"], p.get("title") or Path(p["video"]).stem, p.get("themes"),
                           p.get("target", 30.0), p.get("extra_moments"), p.get("extra_stats"), p.get("folder"),
                           p.get("day"), capture=p.get("capture"), record_started_at=p.get("record_started_at"),
-                          partial_scans=p.get("partial_scans"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+                          partial_scans=p.get("partial_scans"), segments=p.get("segments"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
 def cmd_scan_chunk(p):
@@ -154,6 +157,19 @@ def cmd_benchmark(p):
                          progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
+def cmd_thumb(p):
+    """Miniature d'un live (une image de la vidéo, 320 px de large). La vidéo est seulement lue."""
+    import subprocess
+    out = p["out"]
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{float(p.get('t', 0)):.2f}", "-i", p["video"],
+                        "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "4", out],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(out):
+        raise RuntimeError(f"Miniature impossible : {r.stderr.strip()[-200:]}")
+    return {"out": out}
+
+
 def cmd_stream_folder(p):
     folder = create_stream_folder(p["root"], p["title"])
     write_stats_html(folder["path"], p["title"], p.get("stats", {}), p.get("moments", []))
@@ -177,6 +193,7 @@ COMMANDS = {
     "analyze": cmd_analyze,
     "capture": cmd_capture,
     "scan-chunk": cmd_scan_chunk,
+    "thumb": cmd_thumb,
 }
 
 

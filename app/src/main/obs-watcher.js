@@ -15,6 +15,11 @@ const READ_ONLY_REQUESTS = new Set([
   'GetRecordStatus',
   'GetRecordDirectory',
   'GetVideoSettings',
+  // Où est la webcam dans la scène affichée (lecture seule, voir obs-scenes.js).
+  'GetSceneList',
+  'GetCurrentProgramScene',
+  'GetSceneItemList',
+  'GetGroupSceneItemList',
 ]);
 
 // Requêtes d'action : autorisées seulement si le streamer a coché l'option
@@ -23,7 +28,7 @@ const READ_ONLY_REQUESTS = new Set([
 const RECORD_CONTROL_REQUESTS = new Set(['StartRecord', 'StopRecord']);
 
 const OP = { Hello: 0, Identify: 1, Identified: 2, Event: 5, Request: 6, RequestResponse: 7 };
-const SUBS = { General: 1 << 0, Outputs: 1 << 6 };
+const SUBS = { General: 1 << 0, Scenes: 1 << 2, Outputs: 1 << 6 };
 
 function computeAuth(password, salt, challenge) {
   const sha = (s) => crypto.createHash('sha256').update(s).digest('base64');
@@ -99,7 +104,7 @@ class ObsWatcher extends EventEmitter {
     const { op, d } = msg;
     switch (op) {
       case OP.Hello: {
-        const identify = { rpcVersion: 1, eventSubscriptions: SUBS.General | SUBS.Outputs };
+        const identify = { rpcVersion: 1, eventSubscriptions: SUBS.General | SUBS.Scenes | SUBS.Outputs };
         if (d.authentication) {
           identify.authentication = computeAuth(this.password, d.authentication.salt, d.authentication.challenge);
         }
@@ -165,6 +170,8 @@ class ObsWatcher extends EventEmitter {
         this.state.lastRecordingPath = data.outputPath || null;
         this.emit('recordStopped', { path: data.outputPath || null, at: Date.now() });
       }
+    } else if (type === 'CurrentProgramSceneChanged') {
+      this.emit('sceneChanged', { scene: data.sceneName, at: Date.now() });
     } else if (type === 'ExitStarted') {
       this.emit('obsClosing');
     }

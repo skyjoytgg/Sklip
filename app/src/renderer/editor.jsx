@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CamEditor, CamCrop, camStatus } from './cam-editor.jsx';
 import * as M from './editor-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
@@ -76,7 +77,7 @@ function FriendPreview({ clip, t, playing, vertical }) {
   );
 }
 
-function Preview({ project, player, videoSrc }) {
+function Preview({ project, player, videoSrc, cam, camManual = false }) {
   const clip = project.clips[player.idx];
   const videoRef = useRef(null);
   useEffect(() => {
@@ -91,7 +92,11 @@ function Preview({ project, player, videoSrc }) {
   const layout = clip ? clip.layout : 'cam_top';
   const mm = clip && mainMoment(clip);
   const showText = project.texts.enabled && mm;
-  const camBox = <div className="pv-cam">CAM</div>;
+  const theCam = clip ? M.clipCam(clip, cam, camManual) : cam;
+  const camBox = videoSrc && theCam && clip
+    ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 640} />
+    : <div className="pv-cam">CAM</div>;
+  const camFull = vertical && layout === 'cam_full';
   const gameBox = (
     <div className="pv-game" style={{ '--c': mm ? info(mm.type).color : '#333' }}>
       {videoSrc ? <video ref={videoRef} src={videoSrc} muted={false} /> : (
@@ -103,9 +108,12 @@ function Preview({ project, player, videoSrc }) {
     <div className={'preview ' + (vertical ? 'v' : 'h')}>
       <div className="pv-frame">
         {vertical && layout === 'cam_top' && camBox}
-        {gameBox}
+        {camFull && (videoSrc && theCam && clip
+          ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 1920} full />
+          : <div className="pv-cam full">CAM EN GRAND</div>)}
+        {camFull ? <div className="pv-hidden">{gameBox}</div> : gameBox}
         {vertical && layout === 'cam_bottom' && camBox}
-        {!vertical && <div className="pv-cam pv-cam-corner">CAM</div>}
+        {!vertical && !videoSrc && <div className="pv-cam pv-cam-corner">CAM</div>}
         {showText && mm.type === 'ace' && project.texts.ace && <div className="pv-text big">ACE</div>}
         {showText && ['multikill', 'kill'].includes(mm.type) && project.texts.killCounter && (
           <div className="pv-text">{mm.meta?.count ? `${mm.meta.count} KILLS` : 'KILL'}</div>)}
@@ -123,7 +131,7 @@ function Preview({ project, player, videoSrc }) {
 }
 
 // ---------- Timeline ----------
-function Timeline({ project, setProject, selected, setSelected, player }) {
+function Timeline({ project, setProject, selected, setSelected, player, speech }) {
   const [pps, setPps] = useState(28);        // pixels par seconde (zoom)
   const [drag, setDrag] = useState(null);    // { id, x0, dx, insert } | { trim, id, edge, x0, snap }
   const offsets = M.clipOffsets(project);
@@ -146,7 +154,7 @@ function Timeline({ project, setProject, selected, setSelected, player }) {
     if (!drag) return;
     const dx = e.clientX - drag.x0;
     if (drag.trim) {
-      setProject(M.trimClip(drag.snap, drag.id, drag.edge, dx / pps));
+      setProject(M.trimClip(drag.snap, drag.id, drag.edge, dx / pps, speech));
       return;
     }
     const rect = ref.current.getBoundingClientRect();
@@ -196,18 +204,21 @@ function Timeline({ project, setProject, selected, setSelected, player }) {
             {project.clips.map((c, i) => {
               const mm = mainMoment(c);
               const dragging = drag && !drag.trim && drag.id === c.id && Math.abs(drag.dx) > 4;
+              const cut = M.cutsSentence(c, speech);
               return (
                 <div key={c.id}
                   className={'tl-clip' + (selected === c.id ? ' sel' : '') + (dragging ? ' dragging' : '')}
                   style={{ left: offsets[i] * pps, width: (c.end - c.start) * pps, '--c': mm ? info(mm.type).color : '#666',
                     transform: dragging ? `translateX(${drag.dx}px)` : undefined }}
                   onPointerDown={(e) => onClipDown(e, c)}>
-                  <div className="h l" onPointerDown={(e) => onTrimDown(e, c, 'start')} />
+                  <div className={'h l' + (cut.start ? ' cuts' : '')} title={cut.start ? 'Coupe une phrase' : undefined}
+                    onPointerDown={(e) => onTrimDown(e, c, 'start')} />
                   <div className="tl-label">
                     <b>{mm ? info(mm.type).label : 'Clip'}{M.hasLiveMusic(project, c) && <span title="Musique du live gardée"> 🎵</span>}</b>
                     <span>{(c.end - c.start).toFixed(1)} s</span>
                   </div>
-                  <div className="h r" onPointerDown={(e) => onTrimDown(e, c, 'end')} />
+                  <div className={'h r' + (cut.end ? ' cuts' : '')} title={cut.end ? 'Coupe une phrase' : undefined}
+                    onPointerDown={(e) => onTrimDown(e, c, 'end')} />
                 </div>
               );
             })}
@@ -221,6 +232,30 @@ function Timeline({ project, setProject, selected, setSelected, player }) {
 }
 
 // ---------- Mixeur ----------
+/** Allonger / raccourcir un clip : la vidéo du stream continue de chaque côté, on peut toujours reprendre plus large. */
+function ClipBounds({ project, setProject, clip, speech }) {
+  const nudge = (edge, d) => setProject(M.trimClip(project, clip.id, edge, d));
+  const cut = M.cutsSentence(clip, speech);
+  return (
+    <div className="bounds">
+      <div className="bounds-row">
+        <span>Début</span>
+        <button className="btn sm ghost" title="Commencer 1 s plus tôt" onClick={() => nudge('start', -1)}>−1 s</button>
+        <button className="btn sm ghost" title="Commencer 1 s plus tard" onClick={() => nudge('start', 1)}>+1 s</button>
+        <span className="sp" />
+        <span>Fin</span>
+        <button className="btn sm ghost" title="Finir 1 s plus tôt" onClick={() => nudge('end', -1)}>−1 s</button>
+        <button className="btn sm ghost" title="Finir 1 s plus tard" onClick={() => nudge('end', 1)}>+1 s</button>
+      </div>
+      {(cut.start || cut.end) && (
+        <div className="bounds-warn">
+          ✂️ Ce clip coupe une phrase {cut.start && cut.end ? 'au début et à la fin' : cut.start ? 'au début' : 'à la fin'}.
+          <button className="link" onClick={() => setProject(M.fitToSentences(project, clip.id, speech))}>Ajuster aux phrases</button>
+        </div>)}
+    </div>
+  );
+}
+
 function Fader({ label, value, onChange, inherited }) {
   const muted = value === 0;
   return (
@@ -264,7 +299,7 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
     if (ev.type !== 'reaction-received' || !session.stream.folder) return;
     const es = await api.editorSession(session.stream.folder, session.theme);
     setProject((p) => M.attachReactions(p, es.reactions));
-    setFriendMsg(ev.status === 'ok' ? `Réaction de ${ev.friend} reçue` : `${ev.friend} : ${ev.status === 'refused' ? 'demande refusée' : "pas d'enregistrement à ce moment-là"}`);
+    setFriendMsg(ev.status === 'ok' ? `Réaction de ${ev.friend} reçue` : `${ev.friend} : ${M.reactionStatusText(ev.status)}`);
   }), []);
   const subsPending = useRef(new Set());
 
@@ -303,12 +338,18 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
 
   const moments = useMemo(() => [...session.moments].sort((a, b) => a.t - b.t), [session]);
 
+  // Webcam : réglage de ce stream (project.cam) s'il existe, sinon celle trouvée toute seule / le réglage de base.
+  const [camOpen, setCamOpen] = useState(false);
+  const cam = project.cam ? (project.cam.enabled === false ? null : project.cam) : session.cam;
+  const camSource = project.cam ? (project.cam.enabled === false ? 'none' : project.cam.auto ? 'auto' : 'project') : session.camSource;
+
   const doExport = async () => {
     setExportState({ fraction: 0, message: 'Préparation…' });
     const name = `sklip_${session.theme}_${project.fmt}${project.bpm ? `_${Math.round(project.bpm)}bpm` : ''}.mp4`;
     const output = session.stream.folder ? `${session.stream.folder}/montages/${name}` : name;
     const post = M.suggestPost(project, { streamTitle: session.stream.title, theme: session.theme, channel: session.channel });
-    const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam: session.cam, tracks: session.tracks || {}, post });
+    const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
+      camManual: ['manual', 'project'].includes(camSource) });
     try {
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output });
@@ -342,6 +383,8 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
               onChange={(e) => setProject({ ...project, bpm: e.target.value ? Number(e.target.value) : null })} />
           </label>
           <div className={'dur' + (total > 60 ? ' over' : '')}>{total.toFixed(1)} s</div></div>
+          <button className="btn ghost sm" title={`Webcam : ${camStatus(camSource)}`} onClick={() => setCamOpen(true)}>
+            📷 Webcam{camSource === 'auto_failed' ? ' ⚠' : ''}</button>
           <button className="btn" data-tour="export" onClick={doExport} disabled={!project.clips.length}>Exporter</button>
         </div>
       </header>
@@ -370,7 +413,8 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
         </section>
 
         <section className="stage" data-tour="preview">
-          <Preview project={project} player={player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} />
+          <Preview project={project} player={player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} cam={cam}
+            camManual={['manual', 'project'].includes(camSource)} />
           <div className="transport">
             <button className="btn sm" onClick={() => player.setPlaying(!player.playing)}>{player.playing ? '⏸ Pause' : '▶ Lire'}</button>
             <span className="note">{M.fmtTime(player.t)} / {M.fmtTime(total)}</span>
@@ -384,6 +428,7 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
               <div className="note" style={{ marginBottom: 12 }}>
                 Dans le stream : {M.fmtTime(clip.start)} → {M.fmtTime(clip.end)} ({(clip.end - clip.start).toFixed(1)} s)
               </div>
+              <ClipBounds project={project} setProject={setProject} clip={clip} speech={session.speech} />
               {project.fmt === '9x16' && (
                 <>
                   <div className="lbl">Mise en page 9:16</div>
@@ -516,10 +561,29 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
         </div>
       </div>
 
-      <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player} />
+      <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player}
+        speech={session.speech} />
 
       {showTour && <Tour steps={EDITOR_TOUR} onDone={onTourDone} />}
 
+      {camOpen && (
+        <CamEditor videoSrc={session.stream.video ? `file:///${session.stream.video}` : null}
+          time={clip ? clip.start + (player.idx >= 0 && project.clips[player.idx] === clip ? player.local : 0) : 0}
+          cam={cam} detected={session.camDetected}
+          onApply={async (rect, remember) => {
+            setProject({ ...project, cam: { ...rect, enabled: true } });
+            if (remember) await api.updateSettings({ cam: { ...rect, enabled: true, auto: false } });
+            setCamOpen(false);
+          }}
+          onAuto={async () => {
+            const d = session.camDetected;
+            setProject({ ...project, cam: { x: d.x, y: d.y, w: d.w, h: d.h, enabled: true, auto: true } });
+            await api.updateSettings({ cam: { enabled: true, auto: true } });
+            setCamOpen(false);
+          }}
+          onNone={() => { setProject({ ...project, cam: { enabled: false } }); setCamOpen(false); }}
+          onClose={() => setCamOpen(false)} />
+      )}
       {exportState && (
         <div className="toast">
           {exportState.error ? <span className="bad">Échec de l'export : {exportState.error}</span> : (

@@ -5,25 +5,46 @@ const fs = require('node:fs');
 
 const PART = 1_000_000;   // taille des morceaux envoyés (voir MAX_PART du serveur)
 
+const RETRY_DELAYS = [1000, 4000];   // internet qui coupe, serveur surchargé : on réessaie 2 fois
+
 class RelayBox {
-  constructor({ url, getToken, fetchImpl = globalThis.fetch }) {
+  constructor({ url, getToken, fetchImpl = globalThis.fetch, retryDelays = RETRY_DELAYS }) {
     this.url = url.replace(/\/+$/, '');
     this.getToken = getToken;
     this.fetch = fetchImpl;
+    this.retryDelays = retryDelays;
   }
 
+  // Toutes les requêtes peuvent être refaites sans risque (le serveur remplace ce qui existe déjà).
   async _call(method, path, body, raw = false) {
+    for (let attempt = 0; ; attempt++) {
+      let r;
+      try {
+        r = await this._once(method, path, body);
+      } catch (e) {
+        if (attempt >= this.retryDelays.length) throw new Error(`Serveur Sklip injoignable (${e.message || e})`);
+        await new Promise((ok) => setTimeout(ok, this.retryDelays[attempt]));
+        continue;
+      }
+      if (r.ok) return raw ? new Uint8Array(await r.arrayBuffer()) : r.json();
+      if ((r.status >= 500 || r.status === 429) && attempt < this.retryDelays.length) {
+        await new Promise((ok) => setTimeout(ok, this.retryDelays[attempt]));
+        continue;
+      }
+      let msg = '';
+      try { msg = (await r.json()).error; } catch { /* pas de JSON */ }
+      const err = new Error(`Serveur Sklip : ${msg || r.status}`);
+      err.status = r.status;
+      throw err;
+    }
+  }
+
+  async _once(method, path, body) {
     const headers = { authorization: `Bearer ${await this.getToken()}` };
     let payload;
     if (body instanceof Uint8Array) { payload = body; headers['content-type'] = 'application/octet-stream'; }
     else if (body !== undefined) { payload = JSON.stringify(body); headers['content-type'] = 'application/json'; }
-    const r = await this.fetch(`${this.url}${path}`, { method, headers, body: payload });
-    if (!r.ok) {
-      let msg = '';
-      try { msg = (await r.json()).error; } catch { /* pas de JSON */ }
-      throw new Error(`Serveur Sklip : ${msg || r.status}`);
-    }
-    return raw ? new Uint8Array(await r.arrayBuffer()) : r.json();
+    return this.fetch(`${this.url}${path}`, { method, headers, body: payload });
   }
 
   /** Tous les messages qui me sont adressés (demandes et réponses). */
@@ -64,4 +85,4 @@ class RelayBox {
   }
 }
 
-module.exports = { RelayBox, PART };
+module.exports = { RelayBox, PART, RETRY_DELAYS };

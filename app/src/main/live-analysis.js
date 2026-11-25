@@ -23,8 +23,8 @@ function nextChunk(doneEnd, elapsedSec) {
 }
 
 class LiveAnalyzer {
-  constructor({ engine, obs, log, dir }) {
-    Object.assign(this, { engine, obs, log, dir });
+  constructor({ engine, obs, log, dir, onEvent = () => {} }) {
+    Object.assign(this, { engine, obs, log, dir, onEvent });
     this.chunks = [];
     this.doneEnd = 0;
     this.video = null;
@@ -42,6 +42,7 @@ class LiveAnalyzer {
   fail(e) {
     // Fichier illisible pendant l'écriture (ex. MP4 classique) : on garde tout pour l'après-live.
     this.log.warn('Analyse pendant le live désactivée pour ce live :', e);
+    this.onEvent('Analyse pendant le live arrêtée (tout sera lu à la fin)', 'warn');
     this.disabled = true;
   }
 
@@ -68,6 +69,10 @@ class LiveAnalyzer {
       this.chunks.push(out);
       this.doneEnd = r.end;
       this.log.info(`Analyse pendant le live : ${Math.round(this.doneEnd / 60)} min mesurées`);
+      // Sur la frise : le premier morceau, puis toutes les 30 min (pas 1 marque-page toutes les 5 min).
+      const half = Math.floor(this.doneEnd / 1800);
+      if (this.chunks.length === 1 || half > (this.lastHalf || 0)) this.onEvent(`${Math.round(this.doneEnd / 60)} min déjà analysées`, 'ok');
+      this.lastHalf = half;
     } finally {
       this.running = null;
     }

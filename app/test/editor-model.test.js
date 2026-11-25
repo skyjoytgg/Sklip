@@ -141,3 +141,26 @@ test('sous-titres : lignes, correction, blague, rendu', () => {
   // Jamais générés : le moteur s'en charge.
   assert.equal(m.clipWordsForRender(m.createProject({ clips: [{ start: 0, end: 5 }] }).clips[0]), undefined);
 });
+
+test('marge : allonger au-delà du découpage de départ, aimant sur les phrases', () => {
+  const speech = [[90, 95.5], [101, 104], [290, 310]];
+  let p = m.trimClip(base(), 'a', 'start', -10);                  // la vidéo continue avant le clip
+  assert.strictEqual(p.clips[0].start, 86);
+  p = m.trimClip(base(), 'a', 'end', 2.1, speech);               // 104.1 : collé à la fin de phrase (104.2)
+  assert.strictEqual(p.clips[0].end, 104.2);
+  p = m.trimClip(base(), 'a', 'start', -0.5, speech);            // 95.5 : rien d'assez près → pas d'aimant
+  assert.strictEqual(p.clips[0].start, 95.5);
+  p = m.trimClip(base(), 'a', 'start', 0.5, speech);             // sans BPM seulement : avec BPM, la grille gagne
+  assert.strictEqual(p.clips[0].start, 96.5);
+});
+
+test('ajuster aux phrases', () => {
+  const speech = [[90, 95.5], [101, 104], [280, 320]];
+  const p = base();
+  assert.deepStrictEqual(m.cutsSentence(p.clips[0], speech), { start: false, end: true });
+  const q = m.fitToSentences(p, 'a', speech);
+  assert.deepStrictEqual([q.clips[0].start, q.clips[0].end], [96, 104.2]);
+  const r = m.fitToSentences(p, 'b', speech);                     // phrase de 40 s : on ne bouge pas de 16 s
+  assert.deepStrictEqual([r.clips[1].start, r.clips[1].end], [296, 305]);
+  assert.deepStrictEqual(m.cutsSentence(p.clips[0], null), { start: false, end: false });
+});

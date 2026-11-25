@@ -149,7 +149,8 @@ def ass_filter(ass_file: str) -> str:
 _model = None
 
 
-def transcribe(audio_path: str, start: float, end: float, language: str = "fr", model_size: str = "small") -> list[Word]:
+def transcribe(audio_path: str, start: float, end: float, language: str = "fr", model_size: str = "small",
+               vad: bool = True) -> list[Word]:
     """Mots prononcés entre `start` et `end` (temps relatifs au clip). Utilise faster-whisper.
     Source conseillée : la piste micro séparée (sinon le son mixé)."""
     global _model
@@ -162,7 +163,19 @@ def transcribe(audio_path: str, start: float, end: float, language: str = "fr", 
     if _model is None:
         _model = WhisperModel(model_size, device="auto", compute_type="int8")
     audio = load_audio(audio_path, rate=16000, start=start, duration=end - start).astype(np.float32)
-    segments, _ = _model.transcribe(audio, language=language, word_timestamps=True, vad_filter=True)
+    return transcribe_audio(audio, language, model_size, vad)
+
+
+def transcribe_audio(audio, language: str = "fr", model_size: str = "small", vad: bool = True,
+                     clips: list[float] | None = None) -> list[Word]:
+    """Comme transcribe, sur un signal déjà chargé (16 kHz mono). `clips` = [début, fin, début, fin…] (s) :
+    ne transcrire que ces passages, chacun à part (temps des mots : depuis le début du signal)."""
+    global _model
+    from faster_whisper import WhisperModel
+    if _model is None:
+        _model = WhisperModel(model_size, device="auto", compute_type="int8")
+    extra = {"clip_timestamps": clips, "condition_on_previous_text": False} if clips else {}
+    segments, _ = _model.transcribe(audio, language=language, word_timestamps=True, vad_filter=vad, **extra)
     return merge_punctuation([Word(w.start, w.end, w.word.strip()) for s in segments for w in (s.words or [])
                               if w.word.strip()])
 

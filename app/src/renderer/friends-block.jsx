@@ -43,6 +43,17 @@ export function FriendsBlock({ settings, set }) {
           ? 'Connecte Twitch (au-dessus) pour utiliser les amis de confiance.'
           : "Le serveur Sklip des amis n'est pas encore en ligne dans cette version."}</div>
       )}
+      {status && status.ready && status.offline && (
+        <div className="banner">Serveur Sklip injoignable (pas d'internet ?). Tes demandes partiront toutes seules dès que ça revient.</div>
+      )}
+      {status && status.ready && (status.outbox > 0 || (status.waiting || []).length > 0) && (
+        <div className="note friendwait">
+          {status.outbox > 0 && <div>📤 {status.outbox} demande(s) pas encore envoyée(s)</div>}
+          {(status.waiting || []).map((w, i) => (
+            <div key={i}>⏳ En attente de <b>{w.to}</b>{w.reason ? ` (${w.reason})` : ''} : son Sklip répondra dès qu'il sera ouvert</div>
+          ))}
+        </div>
+      )}
       <div className="field"><label>Tes potes</label>
         <div>
           {friends.map((f) => (

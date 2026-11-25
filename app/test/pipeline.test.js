@@ -46,3 +46,12 @@ test('session de l\'éditeur pour un thème', () => {
   assert.equal(p.editorSession(s, 'inconnu').theme, 'kills');
   assert.equal(p.editorSession(s, 'kills', { cam: { enabled: false } }).cam, null);
 });
+
+test('webcam : trouvée toute seule, sinon réglage manuel', () => {
+  const det = { x: 0.03, y: 0.05, w: 0.22, h: 0.22, confidence: 0.9 };
+  const manual = { x: 0.7, y: 0.7, w: 0.3, h: 0.3, enabled: true };
+  assert.deepEqual(p.pickCam({ ...manual, auto: true }, det), { cam: { x: 0.03, y: 0.05, w: 0.22, h: 0.22 }, source: 'auto' });
+  assert.deepEqual(p.pickCam({ ...manual, auto: true }, null), { cam: { x: 0.7, y: 0.7, w: 0.3, h: 0.3 }, source: 'auto_failed' });
+  assert.deepEqual(p.pickCam({ ...manual, auto: false }, det), { cam: { x: 0.7, y: 0.7, w: 0.3, h: 0.3 }, source: 'manual' });
+  assert.deepEqual(p.pickCam({ ...manual, enabled: false }, det), { cam: null, source: 'none' });
+});

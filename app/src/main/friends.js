@@ -13,8 +13,9 @@ const path = require('node:path');
 const { RelayBox } = require('./relay');
 
 const REACTION_TYPES = new Set(['ace', 'clutch']);
-const PRESENCE_EVERY = 2 * 60 * 1000;    // Sklip regarde le chat partagé toutes les 2 min pendant le live
-const PRESENCE_WINDOW = 3 * 60 * 1000;   // un relevé compte ±3 min autour du moment
+const PRESENCE_EVERY = 60 * 1000;        // Sklip regarde le chat partagé toutes les minutes pendant le live
+const PRESENCE_MARGIN = 60 * 1000;       // marge avant le 1er / après le dernier relevé (temps entre 2 relevés + heure des PC)
+const PRESENCE_GAP = 2.5 * PRESENCE_EVERY; // relevés plus espacés que ça : deux passages séparés en chat partagé
 const PRESENCE_KEEP = 30 * 86400e3;      // relevés gardés 30 jours
 const MARGIN = 5;                        // s ajoutées avant/après (horloges des PC pas parfaitement à l'heure)
 const MAX_REQUEST = 90;                  // s maximum par demande
@@ -33,13 +34,29 @@ function writeJson(file, data) {
   fs.renameSync(tmp, file);
 }
 
-/** Amis de confiance vus dans le chat partagé entre `fromMs` et `toMs` (± la fenêtre). */
+/** Passages en chat partagé par pote : [{ login, from, to }] (premier et dernier relevé où il était là). */
+function presenceRuns(presence) {
+  const byLogin = new Map();
+  for (const p of [...(presence || [])].sort((a, b) => a.at - b.at)) {
+    for (const l of new Set((p.logins || []).map(login))) {
+      const runs = byLogin.get(l) || [];
+      const last = runs[runs.length - 1];
+      if (last && p.at - last.to <= PRESENCE_GAP) last.to = p.at;
+      else runs.push({ login: l, from: p.at, to: p.at });
+      byLogin.set(l, runs);
+    }
+  }
+  return [...byLogin.values()].flat();
+}
+
+/** Amis de confiance en chat partagé pendant [fromMs, toMs] : seulement entre leur premier et leur dernier
+ * relevé d'un passage, plus une petite marge (un ace juste avant d'entrer en chat partagé ne compte pas). */
 function friendsTogether(presence, friends, fromMs, toMs = fromMs) {
   const trusted = new Set(friends.map((f) => login(f.login || f)));
   const out = new Set();
-  for (const p of presence || []) {
-    if (p.at < fromMs - PRESENCE_WINDOW || p.at > toMs + PRESENCE_WINDOW) continue;
-    for (const l of p.logins || []) if (trusted.has(login(l))) out.add(login(l));
+  for (const r of presenceRuns(presence)) {
+    if (!trusted.has(r.login)) continue;
+    if (toMs >= r.from - PRESENCE_MARGIN && fromMs <= r.to + PRESENCE_MARGIN) out.add(r.login);
   }
   return [...out];
 }
@@ -102,10 +119,14 @@ function findRecording(recordings, wallStart, wallEnd) {
 }
 
 /** Le service qui tourne dans Sklip : envoie les demandes, y répond, récupère les réactions. */
+const MAX_TRIES = 5;                       // échecs (minute après minute) avant d'abandonner une tâche
+const EXPIRE_MS = 7 * 24 * 3600 * 1000;    // comme le ménage du serveur
+
 class FriendService {
   constructor({ getSettings, getLogin, getToken, relayUrl, fetchImpl, engine, dataDir, log,
-    notify = () => {}, isRecording = () => false, now = Date.now }) {
-    Object.assign(this, { getSettings, getLogin, getToken, relayUrl, fetchImpl, engine, dataDir, log, notify, isRecording, now });
+    notify = () => {}, isRecording = () => false, now = Date.now, retryDelays }) {
+    Object.assign(this, { getSettings, getLogin, getToken, relayUrl, fetchImpl, engine, dataDir, log, notify, isRecording, now,
+      retryDelays });
     this.stateFile = path.join(dataDir, 'friends-state.json');
     this.recordingsFile = path.join(dataDir, 'recordings.json');
     this.presenceFile = path.join(dataDir, 'presence.json');
@@ -115,17 +136,20 @@ class FriendService {
   /** Prêt si le serveur est configuré et que Twitch est connecté. */
   get box() {
     if (!this.relayUrl || !this.getLogin()) return null;
-    return new RelayBox({ url: this.relayUrl, getToken: this.getToken, fetchImpl: this.fetchImpl });
+    return new RelayBox({ url: this.relayUrl, getToken: this.getToken, fetchImpl: this.fetchImpl, retryDelays: this.retryDelays });
   }
 
   status() {
     if (!this.relayUrl) return { ready: false, reason: 'server' };
     if (!this.getLogin()) return { ready: false, reason: 'twitch' };
-    return { ready: true, login: this.getLogin() };
+    const st = this.state();
+    return { ready: true, login: this.getLogin(),
+      waiting: Object.values(st.sent).map((s) => ({ to: s.to, reason: s.reason, since: s.sentAt || null })),
+      outbox: st.outbox.length, offline: !!this.lastError };
   }
 
   friends() { return (this.getSettings().friends || []).filter((f) => f.login); }
-  state() { return { handled: {}, sent: {}, pending: [], ...readJson(this.stateFile, {}) }; }
+  state() { return { handled: {}, sent: {}, pending: [], outbox: [], tries: {}, ...readJson(this.stateFile, {}) }; }
   saveState(s) { writeJson(this.stateFile, s); }
 
   /** Relevés du chat partagé (faits par CE Sklip pendant les lives de son streamer). */
@@ -149,19 +173,69 @@ class FriendService {
     writeJson(this.recordingsFile, list.slice(-200));
   }
 
+  /** Envoie les demandes. Sans internet (ou serveur injoignable), elles attendent dans la boîte d'envoi
+   * et repartent toutes seules à la prochaine vérification (toutes les minutes). */
   async _send(reqs, folder) {
     const box = this.box;
     if (!box || !reqs.length) return 0;
-    const st = this.state();
     let n = 0;
     for (const r of reqs) {
+      const st = this.state();
       if (st.sent[r.id]) continue;
-      await box.sendRequest(r);
-      st.sent[r.id] = { folder, to: r.to, reason: r.reason, ...r.local, wall_start: r.wall_start };
+      try {
+        await box.sendRequest(r);
+      } catch (e) {
+        if (!st.outbox.some((o) => o.req.id === r.id)) st.outbox.push({ req: r, folder });
+        this.saveState(st);
+        this.lastError = String(e.message || e);
+        this.log.warn('Amis : demande gardée pour plus tard :', this.lastError);
+        continue;
+      }
+      st.outbox = st.outbox.filter((o) => o.req.id !== r.id);
+      st.sent[r.id] = { folder, to: r.to, reason: r.reason, ...r.local, wall_start: r.wall_start, sentAt: this.now() };
+      this.saveState(st);           // noté tout de suite : une coupure plus loin ne fait pas renvoyer celle-ci
       n++;
     }
-    this.saveState(st);
     return n;
+  }
+
+  /** Compte les échecs d'une même tâche ; vrai quand on abandonne (après MAX_TRIES). */
+  _failed(key, e) {
+    const st = this.state();
+    st.tries[key] = (st.tries[key] || 0) + 1;
+    this.saveState(st);
+    this.log.warn(`Amis : échec ${st.tries[key]}/${MAX_TRIES} (${key}) :`, e);
+    return st.tries[key] >= MAX_TRIES;
+  }
+
+  _clearTries(key) {
+    const st = this.state();
+    if (st.tries[key]) { delete st.tries[key]; this.saveState(st); }
+  }
+
+  /** Ajoute une ligne dans reactions.json du stream. */
+  _record(folder, entry) {
+    const file = path.join(folder, 'reactions.json');
+    const list = readJson(file, []).filter((r) => r.id !== entry.id);
+    const full = { received: this.now(), ...entry };
+    list.push(full);
+    writeJson(file, list);
+    return full;
+  }
+
+  /** Demandes sans réponse depuis 7 jours : le serveur les a effacées, le pote n'a pas ouvert Sklip à temps. */
+  _expire() {
+    const st = this.state();
+    let changed = false;
+    for (const [id, s] of Object.entries(st.sent)) {
+      if (s.sentAt && this.now() - s.sentAt > EXPIRE_MS) {
+        const entry = this._record(s.folder, { id, friend: s.to, reason: s.reason, t: s.t, status: 'expired' });
+        delete st.sent[id];
+        changed = true;
+        this.notify('reaction-received', entry);
+      }
+    }
+    if (changed) this.saveState(st);
   }
 
   /** Après l'analyse d'un live : demandes automatiques (aces / clutchs en chat partagé). */
@@ -252,7 +326,7 @@ class FriendService {
     const file = path.join(sent.folder, 'reactions.json');
     const list = readJson(file, []).filter((r) => r.id !== rep.id);
     const entry = { id: rep.id, friend: rep.from, reason: sent.reason, t: sent.t, status: rep.status, received: this.now() };
-    if (rep.status === 'ok') {
+    if (rep.status === 'ok' && rep.parts) {
       const session = readJson(path.join(sent.folder, 'session.json'), {});
       const dest = path.join(sent.folder, 'reactions', `${safeId(rep.id)}.mp4`);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -277,7 +351,11 @@ class FriendService {
     if (!box || this.busy) return;
     this.busy = true;
     try {
+      // 0. Demandes qui n'avaient pas pu partir (pas d'internet à la fin du live).
+      for (const o of this.state().outbox) await this._send([o.req], o.folder);
+      this._expire();
       const inbox = await box.inbox();
+      this.lastError = null;
       const friends = new Map(this.friends().map((f) => [login(f.login), f]));
       // 1. Demandes de mes potes.
       for (const req of inbox.filter((m) => m.kind === 'request')) {
@@ -292,20 +370,39 @@ class FriendService {
           continue;
         }
         if (this.isRecording()) continue;                   // pas de découpe pendant un live : on le fera après
-        await this._answer(req);
+        try {
+          await this._answer(req);
+          this._clearTries(req.id);
+        } catch (e) {
+          if (this._failed(req.id, e)) {                     // on prévient le pote au lieu de réessayer sans fin
+            const st2 = this.state();
+            st2.handled[req.id] = 'error';
+            this.saveState(st2);
+            await box.reply({ id: req.id, from: req.to, to: req.from, status: 'error' }).catch(() => {});
+          }
+        }
       }
       // 2. Réponses à mes demandes.
       for (const rep of inbox.filter((m) => m.kind === 'reply')) {
         const st = this.state();
         const sent = st.sent[rep.id];
         if (!sent) continue;
-        const entry = await this._receive(box, rep, sent);
+        let entry;
+        try {
+          entry = await this._receive(box, rep, sent);
+          this._clearTries(`rep-${rep.id}`);
+        } catch (e) {
+          if (!this._failed(`rep-${rep.id}`, e)) continue;    // on réessaiera à la prochaine minute
+          entry = this._record(sent.folder, { id: rep.id, friend: rep.from, reason: sent.reason, t: sent.t, status: 'error' });
+          await box.cleanup(rep.id).catch(() => {});
+        }
         const st2 = this.state();
         delete st2.sent[rep.id];
         this.saveState(st2);
         this.notify('reaction-received', entry);
       }
     } catch (e) {
+      this.lastError = String(e.message || e);
       this.log.warn('Amis :', e);
     } finally {
       this.busy = false;
@@ -313,4 +410,4 @@ class FriendService {
   }
 }
 
-module.exports = { FriendService, reactionRequests, friendsTogether, findRecording, momentWindow, login, MARGIN, PRESENCE_EVERY };
+module.exports = { MAX_TRIES, FriendService, reactionRequests, friendsTogether, presenceRuns, findRecording, momentWindow, login, MARGIN, PRESENCE_EVERY };

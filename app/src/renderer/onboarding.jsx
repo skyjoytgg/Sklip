@@ -2,6 +2,7 @@
 // (bulles guidées, voir tour.jsx) au premier montage. Tout peut être passé et relancé dans les réglages.
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
+import { SceneTypes } from './scene-types.jsx';
 import { THEMES, MODES, FORMATS } from './constants.js';
 import { TwitchBlock } from './twitch-block.jsx';
 
@@ -77,12 +78,13 @@ const CORNERS = [['tl', 'En haut à gauche'], ['tr', 'En haut à droite'], ['bl'
 
 function cornerOf(cam) {
   if (!cam || cam.enabled === false) return 'none';
+  if (cam.auto !== false) return 'auto';
   return (cam.y > 0.5 - cam.h / 2 ? 'b' : 't') + (cam.x > 0.5 - cam.w / 2 ? 'r' : 'l');
 }
 
 function camFor(corner, w) {
   const h = Math.min(0.6, w * (16 / 9) * (3 / 4)); // webcam en 4:3 dans une image 16:9
-  return { enabled: true, w, h, x: corner[1] === 'r' ? 1 - w : 0, y: corner[0] === 'b' ? 1 - h : 0 };
+  return { enabled: true, auto: false, w, h, x: corner[1] === 'r' ? 1 - w : 0, y: corner[0] === 'b' ? 1 - h : 0 };
 }
 
 function CamPicker({ settings, set }) {
@@ -93,19 +95,23 @@ function CamPicker({ settings, set }) {
     <>
       <div className="camframe">
         <div className="camgame">Ton jeu</div>
-        {corner !== 'none' && (
+        {corner === 'auto' && <div className="camzone auto">Sklip la trouve tout seul</div>}
+        {corner !== 'none' && corner !== 'auto' && (
           <div className="camzone" style={{ left: `${cam.x * 100}%`, top: `${cam.y * 100}%`, width: `${cam.w * 100}%`, height: `${cam.h * 100}%` }}>CAM</div>)}
       </div>
       <div className="themes">
+        <button className={'chip' + (corner === 'auto' ? ' on' : '')} onClick={() => set({ cam: { ...cam, enabled: true, auto: true } })}>Automatique (recommandé)</button>
         {CORNERS.map(([k, label]) => (
           <button key={k} className={'chip' + (corner === k ? ' on' : '')} onClick={() => set({ cam: camFor(k, w) })}>{label}</button>))}
         <button className={'chip' + (corner === 'none' ? ' on' : '')} onClick={() => set({ cam: { ...cam, enabled: false } })}>Pas de webcam</button>
       </div>
-      {corner !== 'none' && (
+      {corner !== 'none' && corner !== 'auto' && (
         <div className="row">Taille
           <input type="range" min="0.12" max="0.4" step="0.01" value={w} onChange={(e) => set({ cam: camFor(corner, Number(e.target.value)) })} />
         </div>)}
-      <div className="note">En 9:16, Sklip met ta webcam en haut et le jeu en dessous. Tu pourras changer ça clip par clip dans l'éditeur.</div>
+      <div className="note">{corner === 'auto'
+        ? "Sklip repère ta webcam dans chaque stream (même si tu la déplaces). Si besoin, tu pourras la régler précisément dans l'éditeur (bouton « Webcam »)."
+        : "Réglage précis possible dans l'éditeur (bouton « Webcam »)."} En 9:16, Sklip met ta webcam en haut et le jeu en dessous.</div>
     </>
   );
 }
@@ -134,7 +140,7 @@ export function Onboarding({ settings, setSettings, obs, onDone }) {
           <p>Sklip repère les meilleurs moments de tes streams (kills, aces, clutchs, raids, fous rires…) et te prépare des montages courts pour TikTok, Shorts et YouTube.</p>
           <p>En 2 minutes, on règle tout ensemble :</p>
           <ol className="steps-list">
-            <li>OBS et Twitch</li><li>Ta webcam</li><li>Tes thèmes et formats</li><li>Le son</li><li>Un test de ton PC</li>
+            <li>OBS et Twitch</li><li>Tes scènes</li><li>Ta webcam</li><li>Tes thèmes et formats</li><li>Le son</li><li>Un test de ton PC</li>
           </ol>
           <p className="note">Ensuite, à ton premier montage, des bulles te montreront comment utiliser l'éditeur.</p>
         </>),
@@ -151,6 +157,14 @@ export function Onboarding({ settings, setSettings, obs, onDone }) {
             <input type="password" defaultValue={settings.obs.password} onBlur={(e) => set({ obs: { password: e.target.value } })} /></div>
           <div className="pill"><span className={'dot' + (obs.connected ? ' ok' : '')} />OBS {obs.connected ? 'connecté ✔' : 'pas encore connecté (OBS doit être ouvert)'}</div>
           <div style={{ marginTop: 16 }}><TwitchBlock /></div>
+        </>),
+    },
+    {
+      title: 'Tes scènes OBS',
+      body: (
+        <>
+          <p>Sklip a regardé tes scènes dans OBS (sans rien y changer) et a deviné à quoi elles servent. Vérifie, et corrige d'un clic si besoin.</p>
+          <SceneTypes settings={settings} set={set} />
         </>),
     },
     { title: 'Où est ta webcam ?', body: <CamPicker settings={settings} set={set} /> },

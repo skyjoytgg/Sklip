@@ -124,3 +124,17 @@ def test_premier_temps():
 
 def test_grille():
     assert beat_grid(120, 2.0) == [0.0, 0.5, 1.0, 1.5, 2.0]
+
+
+def test_pas_de_coupe_au_milieu_d_une_phrase():
+    from sklip_engine.moments import Clip, Moment
+    from sklip_engine.selection import snap_to_speech
+    m = Moment("kill", 100.0)
+    clips = [Clip(96.0, 102.0, [m]), Clip(200.0, 206.0, [Moment("kill", 204.0)])]
+    speech = [(94.5, 97.0), (101.0, 103.5), (150.0, 180.0), (205.0, 215.0)]
+    out = snap_to_speech(clips, speech, stream_duration=1000)
+    assert out[0].start == pytest.approx(94.35) and out[0].end == pytest.approx(103.7)
+    assert out[1].start == 200.0 and out[1].end == 206.0          # phrase trop longue : on ne prolonge pas de 9 s
+    # deux clips qui se rejoignent après ajustement → un seul
+    two = snap_to_speech([Clip(10, 16, [m]), Clip(18, 24, [m])], [(15, 18.5)])
+    assert len(two) == 1 and two[0].start == 10 and two[0].end == 24

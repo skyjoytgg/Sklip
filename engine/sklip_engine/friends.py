@@ -24,6 +24,15 @@ def extract_reaction(video: str, start: float, duration: float, out: str, cam: d
     """Découpe la webcam (ou toute l'image si pas de webcam réglée) de `video` entre start et start+duration."""
     from .render import probe
     src = probe(video)
+    if cam and cam.get("auto", True) is not False and cam.get("enabled", True):
+        # Webcam trouvée toute seule dans cet enregistrement (sinon : le réglage manuel du streamer).
+        from .camdetect import detect_cam
+        try:
+            found = detect_cam(video, src["duration"])
+        except Exception:
+            found = None
+        if found:
+            cam = {**found, "enabled": True}
     start = max(0.0, start)
     duration = max(0.5, min(duration, src["duration"] - start))
     if cam and cam.get("enabled", True) and cam.get("w") and cam.get("h"):

@@ -4,7 +4,7 @@
 const TRACKS = ['game', 'mic', 'discord', 'music'];
 const TRACK_LABELS = { game: 'Jeu', mic: 'Micro', discord: 'Discord', music: 'Musique' };
 const DEFAULT_VOLUMES = { game: 1, mic: 1, discord: 1, music: 0 };
-const LAYOUTS = { cam_top: 'Cam en haut', cam_bottom: 'Cam en bas', game_only: 'Jeu seul' };
+const LAYOUTS = { cam_top: 'Cam en haut', cam_bottom: 'Cam en bas', game_only: 'Jeu seul', cam_full: 'Cam en grand' };
 const MIN_CLIP = 1.0;
 const PRE_ROLL = 4.0;
 const POST_ROLL = 2.0;
@@ -18,6 +18,8 @@ function makeClip(c) {
     start: c.start,
     end: c.end,
     layout: c.layout || 'cam_top',
+    cam: c.cam || null,          // webcam de la scène OBS de ce clip (Just Chatting…), sinon celle du montage
+    scene: c.scene || null,      // passage : « VALORANT », « Just Chatting »…
     volumes: c.volumes || {},
     moments: c.moments || [],
     subs: c.subs || null,        // sous-titres : null = pas encore générés ; sinon lignes [{ start, end, words }]
@@ -70,7 +72,7 @@ function snapDuration(d, bpm) {
  * Rogne un clip en tirant un de ses bords. `edge` = 'start' | 'end', `delta` en secondes
  * (positif = vers la droite). Respecte : durée min, bornes du stream, grille BPM.
  */
-function trimClip(p, id, edge, delta) {
+function trimClip(p, id, edge, delta, speech = null) {
   const c = p.clips.find((x) => x.id === id);
   if (!c) return p;
   let { start, end } = c;
@@ -78,11 +80,59 @@ function trimClip(p, id, edge, delta) {
   if (edge === 'start') {
     start = Math.max(0, Math.min(end - MIN_CLIP, start + delta));
     if (p.bpm) start = Math.max(0, end - snapDuration(end - start, p.bpm));
+    else if (speech) start = Math.min(end - MIN_CLIP, snapToSpeech(start, 'start', speech));
   } else {
     end = Math.min(maxEnd, Math.max(start + MIN_CLIP, end + delta));
     if (p.bpm) end = Math.min(maxEnd, start + snapDuration(end - start, p.bpm));
+    else if (speech) end = Math.min(maxEnd, Math.max(start + MIN_CLIP, snapToSpeech(end, 'end', speech)));
   }
   return updateClip(p, id, { start: round(start), end: round(end) });
+}
+
+// La voix du streamer (`speech` = [[début, fin], …] dans le temps du stream, trouvé à l'analyse).
+const SNAP = 0.35;        // s : un bord tiré près d'un début/fin de phrase s'y colle (aimant)
+const SENTENCE_MAX = 6;   // s : « Ajuster aux phrases » ne bouge pas un bord de plus de 6 s
+
+/** Aimant : colle `t` au début (edge 'start') ou à la fin (edge 'end') de phrase le plus proche, s'il est tout près. */
+function snapToSpeech(t, edge, speech) {
+  let best = t; let dist = SNAP;
+  for (const [a, b] of speech || []) {
+    const x = edge === 'start' ? Math.max(0, a - 0.15) : b + 0.2;
+    if (Math.abs(x - t) < dist) { dist = Math.abs(x - t); best = x; }
+  }
+  return best;
+}
+
+/** La phrase en cours à l'instant t, ou null. */
+function sentenceAt(t, speech) {
+  return (speech || []).find(([a, b]) => a < t && t < b) || null;
+}
+
+/** « Ajuster aux phrases » : si un bord coupe une phrase, on recule le début / prolonge la fin jusqu'à elle. */
+function fitToSentences(p, id, speech) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c || !speech) return p;
+  let { start, end } = c;
+  const s = sentenceAt(start, speech);
+  if (s && start - s[0] <= SENTENCE_MAX) start = Math.max(0, s[0] - 0.15);
+  const e = sentenceAt(end, speech);
+  if (e && e[1] - end <= SENTENCE_MAX) end = Math.min(p.streamDuration ?? Infinity, e[1] + 0.2);
+  return updateClip(p, id, { start: round(start), end: round(end) });
+}
+
+const REACTION_STATUS = {
+  refused: 'demande refusée',
+  absent: "pas d'enregistrement à ce moment-là",
+  not_together: "son Sklip ne vous a pas vus en chat partagé à ce moment-là",
+  error: "son Sklip n'a pas réussi à découper sa webcam",
+  expired: "pas de réponse en 7 jours (il n'a pas ouvert Sklip)",
+};
+/** Pourquoi une réaction n'est pas arrivée, en clair. */
+function reactionStatusText(status) { return REACTION_STATUS[status] || 'réaction indisponible'; }
+
+/** Bords qui coupent une phrase : { start: bool, end: bool }. */
+function cutsSentence(c, speech) {
+  return { start: !!sentenceAt(c.start, speech), end: !!sentenceAt(c.end, speech) };
 }
 
 function round(x) { return Math.round(x * 1000) / 1000; }
@@ -294,11 +344,17 @@ function friendForRender(c) {
     cut_at: round(Math.max(0, f.cutT - c.start)), cut_dur: f.cutDur };
 }
 
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post }) {
+/** Webcam d'un clip : celle de sa scène OBS si on la connaît (sauf webcam réglée à la main pour les clips de jeu). */
+function clipCam(c, cam, camManual = false) {
+  if (!cam || !c.cam) return cam || null;
+  return c.layout === 'cam_full' || !camManual ? c.cam : cam;
+}
+
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false }) {
   return {
     post: post || null,
     auto_mix: p.autoMix !== false,
-    video, output, cam, fmt: p.fmt,
+    video, output, cam: cam && cam.enabled !== false ? { x: cam.x, y: cam.y, w: cam.w, h: cam.h } : null, fmt: p.fmt,
     tracks: tracks || {},
     volumes: p.volumes,
     texts: p.texts,
@@ -307,6 +363,7 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     music_file: musicFile || null,
     music_start: musicStart || 0,
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
+      cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
       moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c) })),
   };
 }
@@ -321,7 +378,8 @@ function fmtTime(s) {
 
 module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
-  createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
+  clipCam, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
+  snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
   isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   linesFromWords, lineText, setClipWords, setLineText, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,

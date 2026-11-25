@@ -40,7 +40,7 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
                    extra_moments: list[dict] | None = None, extra_stats: dict | None = None,
                    folder: str | None = None, day: str | None = None, scan: Scan | None = None,
                    hud: Hud | None = None, capture: dict | None = None, partial_scans: list[str] | None = None,
-                   record_started_at: float | None = None, progress=None) -> dict:
+                   record_started_at: float | None = None, segments: list[dict] | None = None, progress=None) -> dict:
     """Analyse `video` et prépare le dossier du stream. Renvoie la session (aussi écrite dans session.json)."""
     report = progress or (lambda f, m: None)
     themes = [t for t in (themes or ["kills"]) if t in THEMES] or ["kills"]
@@ -73,12 +73,52 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         hud = read_hud(video)
         hud.save(hud_file)
 
+    # 2 bis. La webcam du streamer : trouvée toute seule (réglable à la main dans l'éditeur).
+    cam_file = os.path.join(cache, "cam.json")
+    if os.path.exists(cam_file):
+        with open(cam_file, encoding="utf-8") as f:
+            cam = json.load(f).get("cam")
+    else:
+        report(0.9, "Recherche de la webcam")
+        from .camdetect import detect_cam
+        try:
+            in_game = [float(t) for t, s in zip(hud.t, hud.score_left) if s is not None]
+            cam = detect_cam(video, duration, in_game)
+        except Exception:
+            cam = None
+        with open(cam_file, "w", encoding="utf-8") as f:
+            json.dump({"cam": cam}, f)
+
     # 3. Les pistes audio capturées par Sklip pendant le live, calées sur la vidéo.
     tracks = {}
     if capture and capture.get("info") and capture.get("record_started_at"):
         report(0.95, "Calage des pistes audio")
         from .audio_capture import tracks_for_video
         tracks = tracks_for_video(capture["info"], capture["record_started_at"], video)
+
+    # 3 bis. La voix du streamer (piste micro, sinon le son de la vidéo) : quand il parle (pour ne pas couper
+    # un clip au milieu d'une phrase), et ses rires et cris (piste micro seulement). Gardé en cache.
+    voice_file = os.path.join(cache, "voice.json")
+    vocal, speech = [], []
+    if os.path.exists(voice_file):
+        with open(voice_file, encoding="utf-8") as f:
+            cached = json.load(f)
+        vocal, speech = cached.get("found", []), cached.get("speech", [])
+    else:
+        from .voice import detect_in_track, speech_spans, track_features
+        mic = tracks.get("mic")
+        try:
+            report(0.955, "Écoute de ta voix")
+            src, off = (mic["path"], mic["offset"]) if mic else (video, 0.0)
+            feats = track_features(src)
+            speech = [(round(a + off, 2), round(b + off, 2)) for a, b in speech_spans(*feats)]
+            if mic:
+                report(0.958, "Écoute des rires et des cris")
+                vocal = detect_in_track(mic["path"], offset=off, features=feats)
+            with open(voice_file, "w", encoding="utf-8") as f:
+                json.dump({"found": vocal, "speech": speech}, f, ensure_ascii=False)
+        except Exception:
+            vocal, speech = [], []             # piste illisible : on continue sans
 
     report(0.96, "Choix des meilleurs moments")
     events = find_kills(scan)
@@ -89,16 +129,35 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     for m in extra_moments or []:     # Twitch (raids, chat, clips, peak) et marqueurs, déjà en temps de la vidéo
         if m.get("type") in BASE_SCORES and 0 <= float(m["t"]) <= duration:
             moments.append(Moment(m["type"], float(m["t"]), m.get("score"), m.get("meta", {})))
+    from .voice import to_moments
+    for m in to_moments(vocal):
+        if 0 <= m["t"] <= duration:
+            moments.append(Moment(m["type"], m["t"], None, m["meta"]))
     moments += funny_deaths(deaths, moments)
     moments = sorted(rank_moments(moments), key=lambda m: m.t)
+    from .segments import drop_paused
+    moments = drop_paused(moments, segments)       # pas de clip pendant « Je reviens », écran de fin…
 
-    clips = {th: [c.to_dict() for c in select_clips(moments, th, target, stream_duration=duration)] for th in themes}
+    clips = {th: [c.to_dict() for c in select_clips(moments, th, target, stream_duration=duration, speech=speech)] for th in themes}
+    # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
+    from .segments import assign_layouts, hud_segments, segment_at
+    hud_segs = hud_segments(hud.t, hud.score_left, duration)
+    for th in clips:
+        assign_layouts(clips[th], segments, hud_segs)
+    if segments:
+        for s in segments:
+            if not s.get("game"):
+                h = segment_at(hud_segs, (s["start"] + s["end"]) / 2)
+                s["game_guess"] = (h or {}).get("game") or "Hors jeu"
+    segs_out = segments or hud_segs
     stats = _stats(moments, deaths, rounds, duration, extra_stats or {})
     session = {
         "version": SESSION_VERSION, "title": title, "folder": folder, "video": os.path.abspath(video),
         "duration": round(duration, 2), "target": target, "themes": themes,
         "moments": [m.to_dict() for m in moments], "clips": clips, "deaths": deaths, "stats": stats,
-        "spectated_kills": sum(e.spectating for e in events), "tracks": tracks,
+        "spectated_kills": sum(e.spectating for e in events), "tracks": tracks, "cam_detected": cam,
+        "speech": speech,                     # quand le streamer parle : l'éditeur s'en sert pour ajuster les bords
+        "segments": segs_out,                 # passages : jeu / catégorie, scène OBS, webcam
         # Heure (secondes depuis 1970) du début de l'enregistrement : sert à retrouver le même instant chez un pote.
         "record_started_at": record_started_at or (capture or {}).get("record_started_at"),
     }

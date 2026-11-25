@@ -14,6 +14,10 @@ const pipeline = require('./pipeline');
 const { Markers } = require('./markers');
 const { LiveAnalyzer } = require('./live-analysis');
 const { FriendService, PRESENCE_EVERY } = require('./friends');
+const { LiveJournal, captureEvent } = require('./live-journal');
+const lives = require('./lives');
+const { readCam, readScenes } = require('./obs-scenes');
+const { buildSegments, sameCam } = require('./segments');
 
 let win = null;
 let obs = null;
@@ -27,8 +31,12 @@ let markerService = null;
 let audioCapture = null;
 let liveAnalyzer = null;   // mode « pendant le stream »   // { folder, done: Promise<info> } pendant un enregistrement OBS
 let friendService = null; // amis de confiance (réactions sur aces / clutchs)
-let sharedChatTimer = null; // pendant l'enregistrement : relevé du chat partagé Twitch toutes les 2 min
+let sharedChatTimer = null; // pendant l'enregistrement : relevé du chat partagé Twitch toutes les minutes
 let log = { info() {}, warn() {}, error() {} };   // remplacé par le vrai journal au démarrage
+let journal = null;        // journal du live (frise de l'accueil)
+let sceneLog = [];         // pendant l'enregistrement : scène OBS + webcam [{ at, scene, cam, full }]
+let gameLog = [];          // pendant l'enregistrement : catégorie Twitch [{ at, game }]
+const jadd = (...a) => journal && journal.add(...a);
 
 // Jetons Twitch chiffrés avec le coffre de Windows (safeStorage / DPAPI).
 function tokenStore() {
@@ -48,11 +56,17 @@ function startTwitchLive() {
   if (twitchLive) twitchLive.stop();
   if (!twitch.isConnected()) return;
   twitchLive = new TwitchLive(twitch);
-  twitchLive.on('streamOnline', (d) => send('twitch:event', { type: 'online', ...d }));
-  twitchLive.on('raid', (r) => send('twitch:event', { type: 'raid', ...r }));
+  twitchLive.on('streamOnline', (d) => { jadd('twitch', 'Live Twitch détecté'); send('twitch:event', { type: 'online', ...d }); });
+  twitchLive.on('raid', (r) => {
+    jadd('twitch', `Raid de ${r.channel || '?'}`, { detail: r.viewers ? `${r.viewers} viewers` : '' });
+    send('twitch:event', { type: 'raid', ...r });
+  });
   twitchLive.on('marker', (m) => send('twitch:event', { type: 'marker', ...m }));
   twitchLive.on('error', (e) => { log.warn('Twitch :', e); send('twitch:error', { message: String(e && e.message || e) }); });
-  twitchLive.on('streamOffline', (data) => onTwitchStreamEnded(data).catch((e) => send('twitch:error', { message: e.message })));
+  twitchLive.on('streamOffline', (data) => {
+    jadd('twitch', 'Fin du live Twitch');
+    onTwitchStreamEnded(data).catch((e) => send('twitch:error', { message: e.message }));
+  });
   twitchLive.start();
 }
 
@@ -113,6 +127,11 @@ async function runAnalysis(video, rec = {}) {
   const title = rec.title || pipeline.streamTitle(extras.title, rec.start ? new Date(rec.start) : new Date());
   analysisRunning = { video, startedAt: Date.now() };
   send('analysis:state', { running: true, video, title });
+  const t0 = Date.now();
+  if (rec.start) {
+    const n = rec.partialScans ? rec.partialScans.length : 0;
+    jadd('analysis', 'Analyse lancée', { detail: n ? `${n} morceau(x) déjà analysé(s) pendant le live` : '' });
+  }
   try {
     const session = await engine('analyze', {
       video, root: libraryRoot(), title: rec.title === undefined && !rec.start ? path.parse(video).name : title,
@@ -120,15 +139,24 @@ async function runAnalysis(video, rec = {}) {
       day: new Date(rec.start || Date.now()).toISOString().slice(0, 10), capture: rec.capture || undefined,
       record_started_at: rec.start ? rec.start / 1000 : undefined,
       partial_scans: rec.partialScans && rec.partialScans.length ? rec.partialScans : undefined,
+      segments: rec.segments || undefined,
     });
     settings.update({ lastSessionFolder: session.folder });
     if (friendService && rec.start) friendService.requestForSession(session).catch((e) => log.warn('Amis :', e));
     log.info(`Analyse terminée : ${session.moments.length} moments → ${session.folder}`);
+    if (rec.start) {
+      const nClips = Object.values(session.clips || {}).reduce((n, c) => n + c.length, 0);
+      jadd('analysis', `Analyse terminée : ${session.moments.length} moments, ${nClips} clips`,
+        { detail: `en ${Math.max(1, Math.round((Date.now() - t0) / 60000))} min · ${session.title}` });
+    }
     send('analysis:done', { folder: session.folder, title: session.title, stats: session.stats });
     if (Notification.isSupported() && (!win || !win.isFocused())) {
       new Notification({ title: 'Sklip : tes montages sont prêts', body: `${session.title} — ${session.stats.kills} kills, ${session.stats.multikills} multi-kills` }).show();
     }
     return { folder: session.folder };
+  } catch (e) {
+    if (rec.start) jadd('analysis', "L'analyse a échoué", { detail: String((e && e.message) || e), level: 'error' });
+    throw e;
   } finally {
     analysisRunning = null;
     send('analysis:state', { running: false });
@@ -140,12 +168,18 @@ const capturesDir = () => path.join(app.getPath('userData'), 'captures');
 /** Démarre la capture des pistes (jeu, micro, Discord, musique) par Sklip, en même temps que l'enregistrement OBS. */
 function startAudioCapture() {
   const s = settings.get();
-  if (!s.audio.captureEnabled || audioCapture) return;
+  if (!s.audio.captureEnabled) { jadd('audio', 'Capture des pistes audio désactivée (Réglages)', { level: 'warn' }); return; }
+  if (audioCapture) return;
   const folder = path.join(capturesDir(), new Date().toISOString().replace(/[:.]/g, '-'));
   log.info('Capture audio :', folder);
   const done = engine('capture', { folder, music_exe: s.audio.musicApp || undefined, game_exe: s.audio.gameApp || undefined })
-    .catch((e) => { log.error('Capture audio :', e); return null; });
+    .catch((e) => {
+      log.error('Capture audio :', e);
+      jadd('audio', 'La capture audio a planté', { detail: String((e && e.message) || e), level: 'error' });
+      return null;
+    });
   audioCapture = { folder, done };
+  jadd('audio', 'Capture des pistes audio lancée');
   send('capture:state', { running: true });
 }
 
@@ -174,25 +208,78 @@ function cleanupCaptures() {
 async function onRecordingFinished(e, capturePromise, livePromise) {
   const s = settings.get();
   const info = capturePromise ? await capturePromise : null;
+  if (info) { const c = captureEvent(info); jadd('audio', c.label, c); }
   const live = livePromise ? await livePromise : null;
-  if (s.analysisMode === 'manual' || !e.path) return;
+  if (!e.path) { jadd('analysis', "OBS n'a pas donné le fichier enregistré : analyse impossible", { level: 'error' }); return; }
+  if (s.analysisMode === 'manual') { jadd('analysis', "Analyse en mode manuel : lance-la depuis l'accueil"); return; }
   const rec = { start: obsTimes.recordStartedAt, stop: e.at, markers: [...markers],
     capture: info ? { info, record_started_at: obsTimes.recordStartedAt / 1000 } : null,
+    segments: e.segments && e.segments.length ? e.segments : null,
     partialScans: live && live.video && path.resolve(live.video) === path.resolve(e.path) ? live.chunks : [] };
   // Twitch prévient de la fin du live avec un peu de retard : on lui laisse le temps d'arriver.
-  if (twitch && twitch.isConnected()) await new Promise((r) => setTimeout(r, 90 * 1000));
+  if (twitch && twitch.isConnected()) {
+    jadd('analysis', 'Attente des infos Twitch (1 min 30)');
+    await new Promise((r) => setTimeout(r, 90 * 1000));
+  }
   await runAnalysis(e.path, rec);
 }
 
-/** Pendant l'enregistrement : toutes les 2 min, qui est dans le chat partagé Twitch (pour les réactions des potes). */
+const camText = (r) => (!r.cam ? 'pas de webcam dans cette scène' : r.full ? 'webcam en grand'
+  : `webcam ${r.cam.y < 0.34 ? 'en haut' : r.cam.y > 0.5 ? 'en bas' : 'au milieu'} à ${r.cam.x + r.cam.w / 2 < 0.5 ? 'gauche' : 'droite'}`);
+
+/** Scène OBS affichée et position de la webcam dedans (lecture seule), notées quand elles changent. */
+async function trackScene() {
+  if (!obs || !obs.identified || !obsTimes.recordStartedAt || obsTimes.recordStoppedAt) return;
+  try {
+    const r = await readCam(obs, settings.get().sceneTypes || {});
+    const last = sceneLog[sceneLog.length - 1];
+    if (last && last.scene === r.scene && last.type === r.type && sameCam(last.cam, r.cam)) return;
+    sceneLog.push({ at: Date.now(), ...r });
+    const kind = { jeu: 'scène de jeu', discussion: 'scène de discussion', pause: 'pause : pas de clips ici' }[r.type];
+    jadd('scene', `Scène OBS : ${r.scene}`, { detail: `${kind} · ${camText(r)}` });
+  } catch (e) { log.warn('Scène OBS :', e); }
+}
+
+/** Catégorie Twitch (Valorant, Just Chatting…), notée quand elle change. */
+async function trackGame() {
+  if (!twitch || !twitch.isConnected() || !obsTimes.recordStartedAt || obsTimes.recordStoppedAt) return;
+  try {
+    const game = await twitch.getChannelGame(twitch.tokens.user.id);
+    const last = gameLog[gameLog.length - 1];
+    if (!game || (last && last.game === game)) return;
+    gameLog.push({ at: Date.now(), game });
+    jadd('game', `Catégorie Twitch : ${game}`);
+  } catch (e) { log.warn('Catégorie Twitch :', e); }
+}
+
+/** Pendant l'enregistrement : chaque minute, qui est dans le chat partagé Twitch (pour les réactions des potes). */
 function startSharedChatWatch() {
   stopSharedChatWatch();
+  let before = new Set();
+  let failed = false;
   const poll = async () => {
+    trackScene();
+    trackGame();
     if (!twitch || !twitch.isConnected() || !friendService) return;
     try {
       const logins = await twitch.getSharedChatLogins(twitch.tokens.user.id);
       if (logins.length) friendService.recordPresence(logins);
-    } catch (e) { log.warn('Chat partagé :', e); }
+      const now = new Set(logins.map((l) => l.toLowerCase()));
+      const trusted = new Set(friendService.friends().map((f) => f.login.toLowerCase()));
+      for (const l of now) {
+        if (!before.has(l)) {
+          jadd('chat', `${l} en chat partagé`,
+            { detail: trusted.has(l) ? 'ami de confiance : ses réactions sont possibles' : 'pas dans tes amis de confiance' });
+        }
+      }
+      for (const l of before) if (!now.has(l)) jadd('chat', `${l} a quitté le chat partagé`);
+      before = now;
+      failed = false;
+    } catch (e) {
+      log.warn('Chat partagé :', e);
+      if (!failed) jadd('chat', 'Chat partagé : Twitch ne répond pas', { detail: String((e && e.message) || e), level: 'warn' });
+      failed = true;
+    }
   };
   poll();
   sharedChatTimer = setInterval(poll, PRESENCE_EVERY);
@@ -245,30 +332,38 @@ function startObs() {
   obs.on('connected', () => send('obs:status', { connected: true }));
   obs.on('disconnected', () => {
     send('obs:status', { connected: false });
+    if (obsTimes.recordStartedAt && !obsTimes.recordStoppedAt) jadd('record', 'Connexion à OBS perdue', { level: 'warn' });
     setTimeout(() => obs && !obs.identified && obs.connect(), 5000); // OBS fermé : on réessaie
   });
   obs.on('state', (s) => send('obs:state', s));
+  obs.on('sceneChanged', () => trackScene());
   obs.on('streamStarted', () => send('obs:event', { type: 'streamStarted' }));
   obs.on('streamStopped', () => send('obs:event', { type: 'streamStopped' }));
   obs.on('recordStarted', (e) => {
     obsTimes = { recordStartedAt: e.at, recordStoppedAt: null };
     markers = [];
+    if (journal) journal.start(e.at);
+    sceneLog = [];
+    gameLog = [];
     startSharedChatWatch();
     startAudioCapture();
     if (settings.get().analysisMode === 'live' && obs) {
-      liveAnalyzer = new LiveAnalyzer({ engine, obs, log, dir: path.join(capturesDir(), `live-${e.at}`) });
+      liveAnalyzer = new LiveAnalyzer({ engine, obs, log, dir: path.join(capturesDir(), `live-${e.at}`),
+        onEvent: (label, level) => jadd('scan', label, { level }) });
       liveAnalyzer.start(e.at);
     }
   });
   obs.on('recordStopped', (e) => {
     obsTimes.recordStoppedAt = e.at;
     stopSharedChatWatch();
+    if (journal) journal.stop(e.at, e.path ? path.basename(e.path) : '');
+    const segments = buildSegments({ scenes: sceneLog, games: gameLog, start: obsTimes.recordStartedAt, stop: e.at });
     if (e.path && friendService) friendService.addRecording(e.path, obsTimes.recordStartedAt, e.at);
     send('obs:event', { type: 'recordStopped', ...e });
     const capture = stopAudioCapture();
     const live = liveAnalyzer ? liveAnalyzer.stop() : null;
     liveAnalyzer = null;
-    onRecordingFinished(e, capture, live).catch((err) => log.error('Analyse de fin de live :', err));
+    onRecordingFinished({ ...e, segments }, capture, live).catch((err) => log.error('Analyse de fin de live :', err));
   });
   obs.on('error', (e) => { log.warn('OBS :', e); send('obs:error', { message: String(e && e.message || e) }); });
   obs.connect();
@@ -303,6 +398,7 @@ function listStreams() {
 app.whenReady().then(() => {
   settings = new Settings(app.getPath('userData'));
   log = new Logger(path.join(app.getPath('userData'), 'logs'));
+  journal = new LiveJournal({ dir: path.join(app.getPath('userData'), 'journal'), log, onChange: (j) => send('journal:update', j) });
   cleanupCaptures();
   startFriends();
   log.info(`Démarrage de Sklip ${app.getVersion()}`);
@@ -324,6 +420,28 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('log:openFolder', () => shell.openPath(log.dir));
   ipcMain.handle('streams:list', () => listStreams());
+  ipcMain.handle('journal:list', () => journal.list());
+  ipcMain.handle('journal:get', (_e, id) => journal.get(id));
+  const streamsDir = () => path.join(libraryRoot(), 'Streams');
+  const inLibrary = (folder) => folder && path.resolve(folder).startsWith(path.resolve(streamsDir()) + path.sep);
+  ipcMain.handle('obs:scenes', async () => {
+    if (!obs || !obs.identified) return null;
+    try { return await readScenes(obs, settings.get().sceneTypes || {}); } catch (e) { log.warn('Scènes OBS :', e); return null; }
+  });
+  ipcMain.handle('lives:list', () => lives.listLives(streamsDir()));
+  ipcMain.handle('lives:get', (_e, folder) => (inLibrary(folder)
+    ? lives.liveDetail(folder, { journals: journal.list(), getJournal: (id) => journal.get(id) }) : null));
+  // Miniature (data URL) : créée la première fois à partir de l'enregistrement (seulement lu).
+  ipcMain.handle('lives:thumb', async (_e, folder) => {
+    if (!inLibrary(folder)) return null;
+    const out = path.join(folder, 'thumb.jpg');
+    if (!fs.existsSync(out)) {
+      const session = lives.readJson(path.join(folder, 'session.json'));
+      if (!session || !session.video || !fs.existsSync(session.video)) return null;
+      try { await engine('thumb', { video: session.video, t: lives.thumbTime(session), out }); } catch { return null; }
+    }
+    try { return `data:image/jpeg;base64,${fs.readFileSync(out).toString('base64')}`; } catch { return null; }
+  });
   ipcMain.handle('analysis:start', (_e, video) => runAnalysis(video));
   ipcMain.handle('analysis:status', () => (analysisRunning ? { running: true, ...analysisRunning } : { running: false }));
   ipcMain.handle('project:save', (_e, folder, theme, project) => {
@@ -386,7 +504,11 @@ app.whenReady().then(() => {
     onMarker: (m) => {
       // Un marqueur ne compte que pendant un enregistrement OBS (c'est lui qui sera analysé).
       const counted = !!(obs && obs.state.recording);
-      if (counted) markers.push(m);
+      if (counted) {
+        markers.push(m);
+        const where = { raccourci: 'raccourci clavier', streamdeck: 'Stream Deck', appli: 'bouton de Sklip' }[m.source] || m.source;
+        jadd('marker', `Marqueur (${where})`, { at: m.at });
+      }
       log.info(`Marqueur (${m.source})${counted ? '' : ' ignoré : aucun enregistrement en cours'}`);
       send('marker:added', { ...m, counted, total: markers.length });
     },

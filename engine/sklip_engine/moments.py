@@ -15,7 +15,8 @@ BASE_SCORES: dict[str, float] = {
     "clutch": 80,
     "kill": 30,
     "funny_death": 55,
-    "laugh": 45,
+    "laugh": 45,          # rire du streamer (piste micro)
+    "scream": 50,         # cri / exclamation du streamer (piste micro)
     "chat_spike": 40,
     "raid": 75,
     "viewer_peak": 50,
@@ -28,7 +29,7 @@ MOMENT_TYPES = tuple(BASE_SCORES)
 # Thèmes fournis. Les thèmes perso sont des listes de types cochées par le streamer.
 THEMES: dict[str, dict] = {
     "kills": {"label": "Kills / Aces / Clutchs", "types": ["ace", "multikill", "clutch", "kill"]},
-    "drole": {"label": "Moments drôles", "types": ["funny_death", "laugh", "chat_spike", "marker"]},
+    "drole": {"label": "Moments drôles", "types": ["funny_death", "laugh", "scream", "chat_spike", "marker"]},
     "communaute": {"label": "Moments communauté", "types": ["raid", "viewer_peak", "viewer_clip", "chat_spike"]},
 }
 

@@ -5,6 +5,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .overlays import Word, build_ass, ass_filter, transcribe
@@ -43,7 +45,7 @@ def encoder_args(enc: str) -> list[str]:
     if enc == "h264_nvenc":
         return ["-c:v", enc, "-preset", "p5", "-cq", "20", "-pix_fmt", "yuv420p"]
     if enc == "h264_amf":
-        return ["-c:v", enc, "-quality", "quality", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22", "-pix_fmt", "yuv420p"]
+        return ["-c:v", enc, "-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22", "-pix_fmt", "yuv420p"]
     if enc == "h264_qsv":
         return ["-c:v", enc, "-global_quality", "21", "-pix_fmt", "nv12"]
     return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
@@ -62,11 +64,12 @@ class Rect:
 class RenderClip:
     start: float
     end: float
-    layout: str = "cam_top"                       # cam_top | cam_bottom | game_only
+    layout: str = "cam_top"                       # cam_top | cam_bottom | game_only | cam_full
     volumes: dict = field(default_factory=dict)   # surcharge par clip
     moments: list = field(default_factory=list)   # moments du clip (pour les textes à l'écran)
     words: list | None = None                     # sous-titres déjà connus (sinon transcription)
     friend: dict | None = None                    # réaction d'un pote : {file, offset, mode, pos, cut_at, cut_dur}
+    cam: Rect | None = None                       # webcam de la scène de ce clip (sinon celle du montage)
 
 
 @dataclass
@@ -155,7 +158,18 @@ def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps
                 f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}[lay]")
 
     W, H = 1080, 1920
-    if layout == "game_only" or cam is None:
+    if layout == "cam_full" and cam is not None:
+        # Webcam en grand (Just Chatting…) : la webcam recadrée au format 9:16, centrée, remplit l'écran.
+        cx, cy, cw, ch = cam.x * src_w, cam.y * src_h, cam.w * src_w, cam.h * src_h
+        if cw / ch > W / H:
+            nw = ch * W / H
+            cx, cw = cx + (cw - nw) / 2, nw
+        else:
+            nh = cw * H / W
+            cy, ch = cy + (ch - nh) / 2, nh
+        pos = lambda v: int(round(v / 2)) * 2      # décalage (peut être 0)
+        return (f"[0:v]crop={_even(cw)}:{_even(ch)}:{pos(cx)}:{pos(cy)},scale={W}:{H},setsar=1,fps={fps}[lay]")
+    if layout in ("game_only", "cam_full") or cam is None:
         # Recadrage central du jeu en 9:16. Fonctionne aussi pour les résolutions 4:3 étirées.
         cw = _even(src_h * W / H)
         return f"[0:v]crop={cw}:{src_h}:(iw-{cw})/2:0,scale={W}:{H},setsar=1,fps={fps}[lay]"
@@ -220,7 +234,7 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
         friend_delay = max(0.0, -u)
         friend_input = f"[{cmd.count('-i')}:v]"
         cmd += ["-ss", f"{max(0.0, u):.3f}", "-t", f"{dur:.3f}", "-i", clip.friend["file"]]
-    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], spec.cam, spec.fps, dur, spec.fade,
+    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, spec.fade,
                       post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
                       friend_input=friend_input, friend_delay=friend_delay)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
@@ -251,6 +265,9 @@ def added_music_volume(spec: MontageSpec) -> str:
     return f"volume='if({cond},0,{spec.music_volume:.3f})':eval=frame"
 
 
+PARALLEL = 2                 # clips préparés en même temps à l'export (au-delà, la carte graphique sature)
+
+
 def render_montage(spec: MontageSpec, progress=None) -> str:
     """Rend chaque clip puis les assemble. `progress(fraction, message)` est appelé au fil du rendu."""
     if not spec.clips:
@@ -260,16 +277,30 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(spec.output)), exist_ok=True)
     tmp = tempfile.mkdtemp(prefix="sklip_")
     try:
-        parts = []
-        for i, clip in enumerate(spec.clips):
-            part = os.path.join(tmp, f"part_{i:03d}.mp4")
+        parts = [os.path.join(tmp, f"part_{i:03d}.mp4") for i in range(len(spec.clips))]
+        done = [0]
+        lock = threading.Lock()
+
+        def one(i: int) -> None:
+            clip = spec.clips[i]
             ass_file = _clip_overlays(spec, clip, os.path.join(tmp, f"part_{i:03d}.ass"))
-            r = subprocess.run(_clip_cmd(spec, clip, src, part, enc, ass_file), capture_output=True, text=True)
+            r = subprocess.run(_clip_cmd(spec, clip, src, parts[i], enc, ass_file), capture_output=True, text=True)
+            if r.returncode != 0 and enc != "libx264":
+                # La carte graphique refuse parfois plusieurs encodages à la fois : on refait ce clip au processeur.
+                r = subprocess.run(_clip_cmd(spec, clip, src, parts[i], "libx264", ass_file), capture_output=True, text=True)
             if r.returncode != 0:
                 raise RuntimeError(f"FFmpeg a échoué sur le clip {i + 1} : {r.stderr[-800:]}")
-            parts.append(part)
-            if progress:
-                progress((i + 1) / (len(spec.clips) + 1), f"Clip {i + 1}/{len(spec.clips)}")
+            with lock:
+                done[0] += 1
+                if progress:
+                    progress(done[0] / (len(spec.clips) + 1), f"Clip {done[0]}/{len(spec.clips)}")
+
+        # Plusieurs clips préparés en même temps : le décodage de la vidéo du stream et les filtres tournent
+        # sur le processeur, l'encodage sur la carte graphique ; à 3 à la fois, tout le PC travaille.
+        workers = max(1, min(PARALLEL, len(spec.clips)))
+        with ThreadPoolExecutor(workers) as pool:
+            for f in [pool.submit(one, i) for i in range(len(spec.clips))]:
+                f.result()
         listing = os.path.join(tmp, "list.txt")
         with open(listing, "w", encoding="utf-8") as f:
             for p in parts:

@@ -380,3 +380,92 @@ Vérifié : tests serveur (6), appli (53, avec le vrai code du serveur en mémoi
 serveur lancé en local avec la vraie base D1, deux Sklip sur le PC : réaction reçue en 111 s, calage exact,
 serveur vide après récupération. Pas encore testé : le serveur en ligne et un vrai chat partagé Twitch.
 
+## 11. Claude Code — 25/11/2026 : webcam trouvée toute seule, rires et cris
+
+Demande de Sky : « 1 2 et 3 mais pour le 3 je veux qu'on puisse aussi le régler manuellement »
+(1 = commit/push c6809c3, 2 = rires/cris dans la piste micro, 3 = webcam détectée automatiquement).
+- **Webcam** (`engine/sklip_engine/camdetect.py`) : 24 images réparties sur le stream ; le jeu change tout le temps,
+  la webcam montre toujours la même pièce → grand rectangle calme aux bords nets. Aucun modèle à télécharger.
+  Résultat sur les 2 VOD : à 1–2 px près, ~11 s par vidéo. Gardé en cache (`.sklip/cam.json`).
+  Réglage `cam.auto` (vrai par défaut). Si rien n'est trouvé : réglage de base + ⚠ sur le bouton « 📷 Webcam ».
+- **Réglage à la main** : bouton « 📷 Webcam » dans l'éditeur → fenêtre avec une image du stream, cadre violet à
+  déplacer / redimensionner, « Garder ce réglage pour mes prochains streams », « Automatique », « Pas de webcam ».
+  L'aperçu montre la vraie webcam découpée, comme à l'export. Vérifié à l'écran (glisser-déposer à la souris).
+- **Rires et cris** (`engine/sklip_engine/voice.py`), seulement dans la piste micro capturée par Sklip :
+  cri = voix ≥ 10 dB au-dessus du niveau de parole habituel pendant ≥ 0,3 s ; rire = petites rafales voisées
+  régulières (3 à 8 par seconde). Les tirs/explosions sont écartés (pas une voix). Chaque passage candidat est
+  ensuite écouté par Whisper (un seul appel, chaque passage à part) : « hahaha / mdr » ou rien → rire,
+  exclamation courte (« NOOON », « regarde regarde », « oh stop ») → cri, une phrase dite fort (« Merci ») → rien.
+  Au plus 8 rires et 8 cris par heure. Nouveau type de moment `scream` (« Cri », thème Moments drôles),
+  bonus de classement pour un kill suivi d'un cri, « mort drôle » aussi après un cri. Cache `.sklip/voice.json`.
+Vérifié : tests moteur (dont 16 sur la voix, 5 sur la webcam), appli 54. Sur 20 min de vraie VOD (son mixé, faute
+de piste micro séparée) : 3 cris et 2 rires plausibles en 96 s, dont le vrai « Ha ha ha ha ».
+Pas encore testé : une vraie piste micro séparée pendant un live.
+
+## 12. Claude Code — 25/11/2026 : améliorations faites pendant que Sky n'était pas devant l'ordi
+
+Demande de Sky : « Fait les tous », et « ce serait compliqué d'analyser ce qui est dit pour couper le clip au bon moment ?
+Ou avoir une marge pour raccourcir ou allonger le clip ? »
+- **Coupe aux fins de phrase** : à l'analyse, Sklip repère quand le streamer parle (piste micro, sinon le son de la vidéo :
+  ~40 s pour 3 h 30). Si un clip commence ou finit au milieu d'une phrase, le début recule (≤ 2,5 s) / la fin attend
+  la fin de la phrase (≤ 3 s). `selection.snap_to_speech`, phrases gardées dans `session.json` (`speech`).
+- **Marge dans l'éditeur** : la vidéo du stream continue de chaque côté du clip. Boutons Début/Fin −1 s / +1 s,
+  bords de la timeline aimantés aux débuts/fins de phrase, bord en jaune + « ✂️ Ce clip coupe une phrase » →
+  « Ajuster aux phrases » (≤ 6 s). Vérifié à l'écran.
+- **Longs streams** : la piste micro est lue par morceaux de 10 min (`voice.track_features`) au lieu d'un bloc
+  (~1 Go pour 4 h avant). Transcription des passages candidats : un seul appel Whisper, chaque passage à part.
+- **Webcam** : la détection regarde de préférence les instants où le HUD de Valorant est lu (pas les scènes
+  « Just Chatting » / pause, où la webcam est ailleurs).
+- **Export plus rapide** : l'encodage AMD (AMF) passe de « quality » à « balanced » (l'encodeur était le goulot),
+  2 clips préparés en même temps. 35 s de montage : 17,7 s → 11,1 s, image vérifiée.
+- **Réactions des potes** : requêtes au serveur réessayées 2 fois (coupure, erreur 500) ; demandes gardées dans une boîte
+  d'envoi si pas d'internet à la fin du live, renvoyées toutes seules ; une tâche qui échoue 5 fois est abandonnée et
+  le pote prévenu (« error ») ; demandes sans réponse depuis 7 jours → « expired ». Réglages → Amis affiche
+  « serveur injoignable », les demandes pas encore envoyées et celles en attente.
+- **Répétition générale** (faux OBS sur le PC, `obs-websocket` imité) : enregistrement de 5 min qui grossit en temps
+  réel, capture audio par Sklip, 2 marqueurs Stream Deck, arrêt → analyse automatique en 24 s, 3 moments
+  (2 marqueurs + 1 kill), webcam trouvée, enregistrement intact. Sklip n'a envoyé à OBS que GetStreamStatus /
+  GetRecordStatus. La capture audio démarre ~2,5 s après OBS (décalage bien corrigé). L'analyse pendant le live
+  fait sa 1re mesure à 5 min : rien à mesurer sur un live de 5 min, normal.
+- **Installeur** : `engine\build.bat` utilise maintenant `engine\.venv` (Python 3.13) s'il existe, jamais le Python 3.15
+  du système. Moteur construit en local (455 Mo) et testé (transcription, sélection). `vendor/` ignoré par git.
+Pas encore testé : un vrai live avec Valorant, micro et Discord réels.
+
+## 13. Chat partagé précis, journal du live en frise, fiche premier live (25/11/2026)
+- **Chat partagé** : relevé toutes les minutes (avant : 2 min). Un moment ne compte qu'entre le premier et le dernier
+  relevé où le pote était là, plus 1 min de marge (avant : ±3 min autour de n'importe quel relevé, donc un ace fait
+  juste avant d'entrer en chat partagé pouvait compter). Un relevé raté ne coupe pas le passage.
+- **Journal du live** (`app/src/main/live-journal.js`) : chaque étape d'un enregistrement est notée (capture audio et
+  pistes trouvées, marqueurs, pote en chat partagé, analyse pendant le live toutes les 30 min, raids, analyse finale,
+  erreurs). Affiché sur l'accueil en **frise chronologique avec marque-pages** (`live-journal.jsx`), en direct pendant
+  le live ; « ! » orange/rouge = point à vérifier. Aussi écrit dans le journal texte (rapport de bug). 20 lives gardés.
+  Sky veut voir ce que ça donne : peut-être retiré ensuite.
+- **docs/PREMIER-LIVE.md** : fiche courte avant / pendant / après le premier vrai live.
+- Ménage : installeur, moteur construit et `vendor/ffmpeg` supprimés (≈ 3 Go, tout se reconstruit : `engine\build.bat`,
+  copie de ffmpeg.exe/ffprobe.exe dans `vendor\ffmpeg`, `npm run dist`).
+- **Retour de Sky sur la frise** : il aime le principe mais pas les émojis → icônes dessinées (`icons.jsx`).
+  Filtre « une seule catégorie à la fois » (Tout, Kills, Multi-kills, Aces, Clutchs, Rires, Cris, Marqueurs,
+  Communauté, Coulisses). Nouvel onglet **Lives** (`lives.jsx`, `app/src/main/lives.js`) : une ligne par live
+  (miniature tirée de l'enregistrement au plus beau moment, titre, date, durée, kills/aces/clutchs/clips) ; un clic
+  ouvre la page du live : stats, frise (moments + coulisses du journal + clips le long de l'axe, cliquables vers
+  l'éditeur) et liste des clips. Au-delà de 45 événements, les kills deviennent des points sur l'axe.
+  Moteur : commande `thumb` (miniature, vidéo seulement lue).
+- **Changement de jeu / Just Chatting** (Sky : Valorant surtout, mais Just Chatting en début/fin de live, caméra en
+  grand). On ne peut pas enregistrer la webcam à part (Windows la réserve à OBS) → Sklip **demande à OBS, en lecture
+  seule**, la scène affichée et la position de la webcam dedans (`obs-scenes.js` : GetCurrentProgramScene,
+  GetSceneItemList, GetGroupSceneItemList ; source « Périphérique de capture vidéo », groupes et scènes imbriquées
+  suivis), à chaque changement de scène et chaque minute. Il note aussi la **catégorie Twitch** (Helix /channels).
+  À la fin : passages `segments` (main/segments.js → moteur). Chaque clip prend la mise en page de son passage :
+  Valorant → cam en haut + jeu ; ailleurs → **« Cam en grand »** (webcam recadrée 9:16, choix « a » de Sky).
+  Sans infos (VOD) : passages d'après le bandeau de score Valorant. Frise : une couleur par catégorie
+  (Valorant rouge, Just Chatting bleu) + temps passé sur chacune. Limite : recadrage centré sur la webcam (pas
+  encore centré sur le visage).
+- **Types de scène** (accord de Sky) : c'est la **scène OBS** qui décide de la mise en page, plus la catégorie Twitch
+  (souvent déjà « VALORANT » pendant le Just Chatting ; elle ne sert plus qu'aux couleurs de la frise). Chaque scène
+  est **Jeu** (capture de jeu ≥ 50 % de l'image), **Discussion** (webcam visible, sinon) ou **Pause** (ni l'un ni
+  l'autre : « Je reviens »… → aucun clip). Deviné en lisant la scène dans OBS (GetSceneList ajouté à la liste blanche,
+  lecture seule), confirmé/corrigé par le streamer : nouvelle étape « Tes scènes OBS » de l'assistant + Réglages
+  (`scene-types.jsx`, réglage `sceneTypes`). Le choix du streamer passe avant la devinette.
+- **Overlays des potes** (question de Sky, capture d'un overlay « Rang actuel » en haut à droite) : sans effet, Sklip
+  ne lit pas le killfeed. Il lit l'emblème de kill (bas-centre), le score (haut-centre) et l'icône spectateur
+  (bas-gauche) : un overlay posé sur ces zones-là empêcherait la détection.

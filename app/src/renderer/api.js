@@ -1,5 +1,5 @@
 // Dans Electron : window.sklip (preload). Dans un navigateur : données factices pour l'aperçu.
-import { DEMO_SESSION } from './demo-data.js';
+import { DEMO_SESSION, DEMO_JOURNAL, DEMO_LIVES, demoLive } from './demo-data.js';
 const progressCbs = new Set();
 const twitchCbs = new Set();
 let twitchState = { connected: false };
@@ -39,6 +39,19 @@ const mock = (() => {
       { name: '2026-11-24_ranked-avec-les-potes', title: 'Ranked avec les potes', folder: '',
         stats: { kills: 87, aces: 1, raids: [{ channel: 'Kamel', viewers: 42 }], peak_viewers: 134 } },
     ],
+    journalList: async () => [{ id: DEMO_JOURNAL.id, start: DEMO_JOURNAL.start, stop: DEMO_JOURNAL.stop, count: DEMO_JOURNAL.events.length, problems: 1 },
+      { id: DEMO_JOURNAL.id - 2 * 86400e3, start: DEMO_JOURNAL.id - 2 * 86400e3, stop: DEMO_JOURNAL.id - 2 * 86400e3 + 3 * 3600e3, count: 9, problems: 0 }],
+    journalGet: async () => DEMO_JOURNAL,
+    onJournal: noop,
+    obsScenes: async () => [
+      { name: 'Just Chatting', guess: 'discussion', type: settings.sceneTypes?.['Just Chatting'] || 'discussion', chosen: !!settings.sceneTypes?.['Just Chatting'], cam: { x: 0.125, y: 0, w: 0.75, h: 1 }, full: true },
+      { name: 'Valorant', guess: 'jeu', type: settings.sceneTypes?.Valorant || 'jeu', chosen: !!settings.sceneTypes?.Valorant, cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222 }, full: false },
+      { name: 'Je reviens', guess: 'pause', type: settings.sceneTypes?.['Je reviens'] || 'pause', chosen: !!settings.sceneTypes?.['Je reviens'], cam: null, full: false },
+      { name: 'Valo + grande cam', guess: 'discussion', type: settings.sceneTypes?.['Valo + grande cam'] || 'discussion', chosen: !!settings.sceneTypes?.['Valo + grande cam'], cam: { x: 0.55, y: 0.3, w: 0.45, h: 0.7 }, full: false },
+    ],
+    livesList: async () => DEMO_LIVES,
+    liveGet: async (folder) => demoLive(folder),
+    liveThumb: async (folder) => (typeof window !== 'undefined' && window.__demoThumbs ? window.__demoThumbs[folder] : null) || null,
     openVideo: async () => null,
     analyzeVideo: async () => ({ folder: 'demo' }),
     analysisStatus: async () => ({ running: false }),

@@ -104,3 +104,23 @@ test('option auto-enregistrement : ne touche pas un enregistrement lancé par le
   assert.ok(!types.includes('StartRecord'));
   assert.ok(!types.includes('StopRecord'));
 });
+
+test('liste blanche : seulement des lectures (Get…), jamais de changement de scène ou de source', () => {
+  const { READ_ONLY_REQUESTS } = require('../src/main/obs-watcher');
+  for (const r of READ_ONLY_REQUESTS) assert.match(r, /^Get/, r);
+  for (const r of ['SetCurrentProgramScene', 'SetSceneItemTransform', 'SetSceneItemEnabled', 'SetSceneItemIndex',
+    'CreateSceneItem', 'RemoveSceneItem', 'SetCurrentPreviewScene', 'SetInputMute', 'SetInputVolume']) {
+    assert.strictEqual(isRequestAllowed(r, { allowRecordControl: true }), false, r);
+  }
+});
+
+test('changement de scène dans OBS : Sklip est prévenu', async () => {
+  const { FakeWS } = makeFakeObs();
+  const w = new ObsWatcher({ WebSocketImpl: FakeWS });
+  const seen = [];
+  w.on('sceneChanged', (e) => seen.push(e.scene));
+  w.connect();
+  await tick();
+  FakeWS.instance.serverSend(5, { eventType: 'CurrentProgramSceneChanged', eventData: { sceneName: 'Just Chatting' } });
+  assert.deepStrictEqual(seen, ['Just Chatting']);
+});

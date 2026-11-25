@@ -10,7 +10,8 @@ const DEFAULTS = {
   themes: ['kills'],
   targetDuration: 30,                    // 15 à 60 s
   formats: ['9x16'],
-  cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222, enabled: true },  // webcam de Sky (VOD du 01/11), réglable
+  // Webcam : trouvée toute seule dans chaque stream (auto) ; sinon ce rectangle (réglé à la main). Défaut : position de Sky.
+  cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222, enabled: true, auto: true },
   audio: {
     captureEnabled: true,
     micDevice: null,
@@ -29,6 +30,7 @@ const DEFAULTS = {
   pcTest: null,                          // dernier résultat du test du PC
   lastSessionFolder: null,               // dernier stream analysé (ouvert par « Montage »)
   friends: [],                           // amis de confiance (pseudos Twitch) : [{ login, autoAccept }]
+  sceneTypes: {},                        // scènes OBS choisies par le streamer : { « Valorant »: 'jeu', « Just Chatting »: 'discussion', … }
 };
 
 function deepMerge(base, over) {

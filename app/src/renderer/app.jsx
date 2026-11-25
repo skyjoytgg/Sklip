@@ -6,11 +6,14 @@ import { THEMES, MODES } from './constants.js';
 import { TwitchBlock } from './twitch-block.jsx';
 import { Onboarding, PcTest } from './onboarding.jsx';
 import { FriendsBlock } from './friends-block.jsx';
+import { LiveJournalCard } from './live-journal.jsx';
+import { LivesPage } from './lives.jsx';
+import { SceneTypes } from './scene-types.jsx';
 
 function Sidebar({ page, setPage, obs }) {
   const [mk, setMk] = useState(null);
   useEffect(() => api.onMarker((m) => { setMk(m); setTimeout(() => setMk((x) => (x === m ? { ...m, old: true } : x)), 3000); }), []);
-  const items = [['accueil', 'Accueil'], ['montage', 'Montage'], ['historique', 'Historique'], ['reglages', 'Réglages']];
+  const items = [['accueil', 'Accueil'], ['lives', 'Lives'], ['montage', 'Montage'], ['historique', 'Historique'], ['reglages', 'Réglages']];
   return (
     <aside className="side">
       <div className="logo">Sk<span>lip</span></div>
@@ -25,7 +28,7 @@ function Sidebar({ page, setPage, obs }) {
   );
 }
 
-function Accueil({ settings, setSettings, obs, analysis, openSession }) {
+function Accueil({ settings, setSettings, obs, analysis, openSession, setPage }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => api.onEngineProgress((p) => p.command === 'analyze' && setJob((j) => j && ({ ...j, ...p }))), []);
@@ -79,6 +82,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession }) {
         </div>
       )}
       {error && <div className="bad" style={{ marginTop: 12 }}>L'analyse a échoué : {error}</div>}
+      <LiveJournalCard onOpenLives={() => setPage('lives')} />
     </>
   );
 }
@@ -135,6 +139,8 @@ function Reglages({ settings, setSettings }) {
         <input defaultValue={settings.obs.url} onBlur={(e) => set({ obs: { url: e.target.value } })} /></div>
       <div className="field"><label>Mot de passe obs-websocket</label>
         <input type="password" defaultValue={settings.obs.password} onBlur={(e) => set({ obs: { password: e.target.value } })} /></div>
+      <div className="field"><label>Tes scènes OBS</label>
+        <SceneTypes settings={settings} set={set} /></div>
       <div className="field"><label>Lancer l'enregistrement OBS au début du live</label>
         <div><input type="checkbox" checked={settings.obs.autoRecord} onChange={(e) => set({ obs: { autoRecord: e.target.checked } })} />
           <div className="note">Appuie seulement sur « Démarrer l'enregistrement », avec tes réglages OBS.</div></div></div>
@@ -223,7 +229,8 @@ function App() {
           <div className="ready">🎬 <b>Tes montages sont prêts</b> — {ready.title} ({ready.stats?.kills ?? 0} kills)
             <button className="btn sm" onClick={() => { openSession(ready.folder); setReady(null); }}>Ouvrir l'éditeur</button>
             <button className="link" onClick={() => setReady(null)}>Plus tard</button></div>)}
-        {page === 'accueil' && <Accueil settings={settings} setSettings={setSettings} obs={obs} analysis={analysis} openSession={openSession} />}
+        {page === 'accueil' && <Accueil settings={settings} setSettings={setSettings} obs={obs} analysis={analysis} openSession={openSession} setPage={setPage} />}
+        {page === 'lives' && <LivesPage openSession={openSession} />}
         {page === 'historique' && <Historique openSession={openSession} />}
         {page === 'reglages' && <Reglages settings={settings} setSettings={setSettings} />}
       </main>

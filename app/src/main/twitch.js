@@ -131,6 +131,12 @@ class TwitchAuth extends EventEmitter {
     return d.data[0] || null;  // { viewer_count, started_at, game_name, title } ou null hors live
   }
 
+  /** Catégorie actuelle de la chaîne (« VALORANT », « Just Chatting »…). Information publique, aucun scope requis. */
+  async getChannelGame(broadcasterId) {
+    const d = await this.helix('/channels', { query: { broadcaster_id: broadcasterId } });
+    return (d.data && d.data[0] && d.data[0].game_name) || null;
+  }
+
   /** Tous les clips créés pendant le stream (pagination incluse). */
   async getClips(broadcasterId, startedAt, endedAt) {
     const out = [];

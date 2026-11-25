@@ -52,15 +52,25 @@ function streamTitle(twitchTitle, date = new Date()) {
 }
 
 /** Session du moteur → données de l'éditeur pour un thème. */
+/** Webcam à utiliser : celle trouvée dans ce stream (auto), sinon le réglage manuel, sinon aucune. */
+function pickCam(cam, detected) {
+  const rect = (c) => ({ x: c.x, y: c.y, w: c.w, h: c.h });
+  if (!cam || cam.enabled === false) return { cam: null, source: 'none' };
+  if (cam.auto !== false && detected) return { cam: rect(detected), source: 'auto' };
+  return { cam: rect(cam), source: cam.auto !== false ? 'auto_failed' : 'manual' };
+}
+
 function editorSession(session, theme, { cam, tracks } = {}) {
   const th = session.clips[theme] ? theme : session.themes[0];
+  const picked = pickCam(cam, session.cam_detected);
   return {
     stream: { title: session.title, duration: session.duration, video: session.video, folder: session.folder },
     theme: th, themes: session.themes, target: session.target,
     moments: session.moments, clips: session.clips[th] || [],
-    cam: cam && cam.enabled !== false ? { x: cam.x, y: cam.y, w: cam.w, h: cam.h } : null,
+    cam: picked.cam, camSource: picked.source, camDetected: session.cam_detected || null,
     tracks: tracks || session.tracks || null,
+    speech: session.speech || [],     // quand le streamer parle : aimant et « Ajuster aux phrases » dans l'éditeur
   };
 }
 
-module.exports = { markerMoments, readPendingTwitch, pickTwitchData, twitchExtras, streamTitle, editorSession };
+module.exports = { pickCam, markerMoments, readPendingTwitch, pickTwitchData, twitchExtras, streamTitle, editorSession };

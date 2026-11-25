@@ -8,6 +8,7 @@ from .moments import Moment
 BOOSTS = [
     ("chat_spike", 3.0, 20.0, 15.0),
     ("laugh", 3.0, 10.0, 10.0),
+    ("scream", 2.0, 6.0, 10.0),          # le streamer crie juste après (« NOOON », « regarde ! »)
     ("viewer_clip", 30.0, 10.0, 15.0),   # un viewer a clippé ce passage
     ("marker", 30.0, 5.0, 20.0),         # le streamer a appuyé sur son raccourci
 ]
@@ -33,10 +34,10 @@ def rank_moments(moments: list[Moment]) -> list[Moment]:
 
 
 def funny_deaths(deaths: list[float], moments: list[Moment]) -> list[Moment]:
-    """Morts suivies d'un rire ou d'un pic de chat → moments « mort drôle »."""
+    """Morts suivies d'un rire, d'un cri ou d'un pic de chat → moments « mort drôle »."""
     out = []
     for d in deaths:
-        react = [o for o in moments if o.type in ("laugh", "chat_spike") and d <= o.t <= d + FUNNY_DEATH_WINDOW]
+        react = [o for o in moments if o.type in ("laugh", "scream", "chat_spike") and d <= o.t <= d + FUNNY_DEATH_WINDOW]
         if react:
             out.append(Moment("funny_death", round(d, 2), meta={"reaction": react[0].type}))
     return out

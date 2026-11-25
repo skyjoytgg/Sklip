@@ -8,3 +8,4 @@ engine/dist/
 vods/
 .venv/
 .wrangler/
+vendor/
