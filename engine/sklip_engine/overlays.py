@@ -57,11 +57,13 @@ def group_words(words: list[Word], max_words: int = 3, max_gap: float = 0.6, max
 def subtitle_events(words: list[Word], duration: float) -> list[str]:
     """Une ligne de dialogue par mot : la phrase entière, le mot prononcé en couleur."""
     events = []
-    for g in group_words(words):
+    groups = group_words(merge_punctuation(words))   # « ça » + « ! » tapés à la main → « ça! »
+    for gi, g in enumerate(groups):
+        nxt = groups[gi + 1][0].start if gi + 1 < len(groups) else duration
         for i, w in enumerate(g):
             start = w.start
             end = g[i + 1].start if i + 1 < len(g) else w.end + 0.15
-            end = min(end, duration)
+            end = min(end, nxt, duration)            # jamais deux phrases à l'écran en même temps
             if end <= start:
                 continue
             parts = []
@@ -161,4 +163,19 @@ def transcribe(audio_path: str, start: float, end: float, language: str = "fr", 
         _model = WhisperModel(model_size, device="auto", compute_type="int8")
     audio = load_audio(audio_path, rate=16000, start=start, duration=end - start).astype(np.float32)
     segments, _ = _model.transcribe(audio, language=language, word_timestamps=True, vad_filter=True)
-    return [Word(w.start, w.end, w.word.strip()) for s in segments for w in (s.words or []) if w.word.strip()]
+    return merge_punctuation([Word(w.start, w.end, w.word.strip()) for s in segments for w in (s.words or [])
+                              if w.word.strip()])
+
+
+def merge_punctuation(words: list[Word]) -> list[Word]:
+    """Recolle la ponctuation seule (« ! ») et les élisions (« T » + « 'es ») au mot d'avant : « Oulah! », « T'es »."""
+    out: list[Word] = []
+    for w in words:
+        t = w.text.strip()
+        if out and (all(not ch.isalnum() for ch in t) or t[:1] in ("'", "’", "-")):
+            prev = out[-1]
+            sep = "" if t[:1] in ("'", "’", "-") or t[:1] in ".,!?…" else " "
+            out[-1] = Word(prev.start, max(prev.end, w.end), prev.text + sep + t)
+        else:
+            out.append(Word(w.start, w.end, t))
+    return out

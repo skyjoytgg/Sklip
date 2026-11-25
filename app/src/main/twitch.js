@@ -145,6 +145,16 @@ class TwitchAuth extends EventEmitter {
     return out;
   }
 
+  /** Chaînes avec qui on partage le chat en ce moment (pseudos), sans soi-même. Aucun scope requis. */
+  async getSharedChatLogins(broadcasterId) {
+    const d = await this.helix('/shared_chat/session', { query: { broadcaster_id: broadcasterId } });
+    const s = d.data && d.data[0];
+    const ids = s ? s.participants.map((p) => p.broadcaster_id).filter((id) => id !== broadcasterId) : [];
+    if (!ids.length) return [];
+    const u = await this.helix(`/users?${ids.map((id) => `id=${encodeURIComponent(id)}`).join('&')}`);
+    return u.data.map((x) => x.login);
+  }
+
   async getVideos(userId, first = 20) {
     const d = await this.helix('/videos', { query: { user_id: userId, type: 'archive', first: String(first) } });
     return d.data;

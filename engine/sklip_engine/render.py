@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass, field
 
 from .overlays import Word, build_ass, ass_filter, transcribe
+from . import mixing
 
 TRACKS = ("game", "mic", "discord", "music")
 # Discord actif par défaut ; musique coupée par défaut à l'export (droits d'auteur).
@@ -65,6 +66,7 @@ class RenderClip:
     volumes: dict = field(default_factory=dict)   # surcharge par clip
     moments: list = field(default_factory=list)   # moments du clip (pour les textes à l'écran)
     words: list | None = None                     # sous-titres déjà connus (sinon transcription)
+    friend: dict | None = None                    # réaction d'un pote : {file, offset, mode, pos, cut_at, cut_dur}
 
 
 @dataclass
@@ -90,6 +92,7 @@ class MontageSpec:
     encoder: str | None = None
     texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
     subtitles: bool = False                         # sous-titres auto mot par mot (français)
+    auto_mix: bool = True                           # niveaux cohérents + voix devant + volume final -14 LUFS
 
 
 def probe(path: str) -> dict:
@@ -104,23 +107,58 @@ def _even(v: float) -> int:
     return max(2, int(round(v / 2)) * 2)
 
 
-def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
-                 dur: float, fade: float, post: str = "") -> str:
-    """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
-    (ex. incrustation des sous-titres)."""
-    fades = f",{post}" if post else ""
-    if fade > 0 and dur > 2 * fade:
-        fades += f",fade=t=in:st=0:d={fade},fade=t=out:st={dur - fade:.3f}:d={fade}"
+PIP_MARGIN = 30
+FRIEND_BORDER = "0x9146FF"
 
+
+def friend_filter(fmt: str, layout: str, friend: dict, inp: str, delay: float = 0.0) -> tuple[str, str]:
+    """Réaction du pote par-dessus la mise en page [lay] → [fr_out].
+    pip : sa webcam dans un coin (bord violet) ; cut : plan de coupe plein écran pendant cut_dur secondes."""
+    W, H = (1920, 1080) if fmt == "16x9" else (1080, 1920)
+    shift = f",setpts=PTS+{delay:.3f}/TB" if delay > 0 else ""
+    if friend.get("mode") == "cut":
+        a = max(0.0, float(friend.get("cut_at", 0.0)))
+        b = a + max(0.5, float(friend.get("cut_dur", 2.5)))
+        chain = (f"{inp}scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1{shift}[fr];"
+                 f"[lay][fr]overlay=0:0:eof_action=pass:enable='between(t,{a:.3f},{b:.3f})'[fr_out]")
+        return chain, "[fr_out]"
+    pw = 480 if fmt == "16x9" else 380
+    top = 640 if (fmt == "9x16" and layout == "cam_top") else 0       # haut de la zone de jeu
+    pos = friend.get("pos") or ("br" if fmt == "16x9" else "tr")
+    x = f"W-w-{PIP_MARGIN}" if pos in ("tr", "br") else str(PIP_MARGIN)
+    y = f"{top + PIP_MARGIN}" if pos in ("tr", "tl") else f"H-h-{PIP_MARGIN}"
+    chain = (f"{inp}scale={pw - 12}:-2,pad=iw+12:ih+12:6:6:color={FRIEND_BORDER},setsar=1{shift}[fr];"
+             f"[lay][fr]overlay={x}:{y}:eof_action=pass[fr_out]")
+    return chain, "[fr_out]"
+
+
+def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
+                 dur: float, fade: float, post: str = "", friend: dict | None = None,
+                 friend_input: str | None = None, friend_delay: float = 0.0) -> str:
+    """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
+    (ex. incrustation des sous-titres). `friend` : réaction d'un pote (entrée `friend_input`)."""
+    tail = [post] if post else []
+    if fade > 0 and dur > 2 * fade:
+        tail += [f"fade=t=in:st=0:d={fade}", f"fade=t=out:st={dur - fade:.3f}:d={fade}"]
+    base = _layout(fmt, layout, src_w, src_h, cam, fps)
+    last = "[lay]"
+    if friend and friend_input:
+        chain, last = friend_filter(fmt, layout, friend, friend_input, friend_delay)
+        base += ";" + chain
+    return f"{base};{last}{','.join(tail) or 'null'}[v]"
+
+
+def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int) -> str:
+    """Mise en page du clip : entrée [0:v], sortie [lay]."""
     if fmt == "16x9":
         return (f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
-                f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}{fades}[v]")
+                f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}[lay]")
 
     W, H = 1080, 1920
     if layout == "game_only" or cam is None:
         # Recadrage central du jeu en 9:16. Fonctionne aussi pour les résolutions 4:3 étirées.
         cw = _even(src_h * W / H)
-        return (f"[0:v]crop={cw}:{src_h}:(iw-{cw})/2:0,scale={W}:{H},setsar=1,fps={fps}{fades}[v]")
+        return f"[0:v]crop={cw}:{src_h}:(iw-{cw})/2:0,scale={W}:{H},setsar=1,fps={fps}[lay]"
 
     cam_h, game_h = 640, H - 640
     cx, cy = _even(cam.x * src_w), _even(cam.y * src_h)
@@ -132,7 +170,7 @@ def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None
     game_chain = f"crop={gw}:{src_h}:(iw-{gw})/2:0,scale={W}:{game_h}"
     order = "[cam][game]" if layout == "cam_top" else "[game][cam]"
     return (f"[0:v]split=2[a][b];[a]{cam_chain}[cam];[b]{game_chain}[game];"
-            f"{order}vstack=inputs=2,setsar=1,fps={fps}{fades}[v]")
+            f"{order}vstack=inputs=2,setsar=1,fps={fps}[lay]")
 
 
 def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str, ass_file: str | None = None) -> list[str]:
@@ -143,15 +181,24 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
 
     active = [(name, tf) for name, tf in spec.tracks.items() if name in TRACKS and vols.get(name, 0) > 0]
     if spec.tracks:
+        named = {}
         for i, (name, tf) in enumerate(active, start=1):
             track_t = clip.start - tf.offset         # instant correspondant dans la piste Sklip
             delay = max(0.0, -track_t)
             cmd += ["-ss", f"{max(0.0, track_t):.3f}", "-t", f"{dur:.3f}", "-i", tf.path]
-            chain = f"[{i}:a]aresample=48000,volume={vols[name]:.3f}"
+            gain = vols[name]
+            if spec.auto_mix:                        # 100 % = niveau cible de la piste (voix devant, musique derrière)
+                gain *= mixing.auto_gain(name, mixing.measure_track(tf.path, track_t, dur))
+            chain = f"[{i}:a]aresample=48000,volume={gain:.4f}"
             if delay > 0:
                 chain += f",adelay={int(delay * 1000)}:all=1"
             audio_parts.append(chain + f",apad,atrim=0:{dur:.3f}[t{i}]")
-            labels.append(f"[t{i}]")
+            named[name] = f"[t{i}]"
+        if spec.auto_mix:
+            key = "mic" if "mic" in named else ("discord" if "discord" in named else None)
+            duck, named = mixing.ducking_graph(named, key)
+            audio_parts += duck
+        labels = list(named.values())
     else:
         # Pas de pistes séparées (VOD, ou Sklip ouvert en retard) : son mixé de la vidéo.
         audio_parts.append(f"[0:a:0]aresample=48000,apad,atrim=0:{dur:.3f}[t0]")
@@ -166,8 +213,16 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
     afade = f",afade=t=in:st=0:d={fade},afade=t=out:st={dur - fade:.3f}:d={fade}" if fade else ""
     audio_parts.append(f"{mix},aformat=channel_layouts=stereo{afade}[a]")
 
+    friend_input, friend_delay = None, 0.0
+    if clip.friend and clip.friend.get("file") and os.path.exists(clip.friend["file"]):
+        # extrait(u) = stream(u + offset) : le début du clip tombe à u = clip.start - offset dans l'extrait.
+        u = clip.start - float(clip.friend.get("offset", 0.0))
+        friend_delay = max(0.0, -u)
+        friend_input = f"[{cmd.count('-i')}:v]"
+        cmd += ["-ss", f"{max(0.0, u):.3f}", "-t", f"{dur:.3f}", "-i", clip.friend["file"]]
     vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], spec.cam, spec.fps, dur, spec.fade,
-                      post=ass_filter(ass_file) if ass_file else "")
+                      post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
+                      friend_input=friend_input, friend_delay=friend_delay)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
             *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
     return cmd
@@ -219,15 +274,24 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
         with open(listing, "w", encoding="utf-8") as f:
             for p in parts:
                 f.write(f"file '{p}'\n")
-        joined = os.path.join(tmp, "joined.mp4") if spec.music_file else spec.output
+        final = os.path.join(tmp, "final.mp4") if spec.auto_mix else spec.output
+        joined = os.path.join(tmp, "joined.mp4") if spec.music_file else final
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
                         "-c", "copy", "-movflags", "+faststart", joined], check=True, capture_output=True)
         if spec.music_file:
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-ss", f"{spec.music_start:.3f}",
                             "-i", spec.music_file, "-filter_complex",
+                            (f"[1:a]{added_music_volume(spec)}[m0];[0:a]asplit[a0][k];"
+                             f"[m0][k]sidechaincompress={mixing.DUCK['music']}[m];"   # la musique s'efface sous la voix
+                             "[a0][m]amix=inputs=2:normalize=0:duration=first[a]") if spec.auto_mix else
                             f"[1:a]{added_music_volume(spec)}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]",
                             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                            "-movflags", "+faststart", spec.output], check=True, capture_output=True)
+                            "-movflags", "+faststart", final], check=True, capture_output=True)
+        if spec.auto_mix:
+            if progress:
+                progress(len(spec.clips) / (len(spec.clips) + 1), "Réglage du volume final")
+            if mixing.normalize_loudness(final, spec.output) is None:
+                shutil.copyfile(final, spec.output)
         if progress:
             progress(1.0, "Terminé")
         return spec.output

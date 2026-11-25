@@ -3,15 +3,20 @@ import * as M from './editor-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
 import { Tour, EDITOR_TOUR } from './tour.jsx';
+import { THEMES } from './constants.js';
+
+const THEME_LABELS = Object.fromEntries(THEMES.map((t) => [t.id, t.label]));
 
 const info = (t) => MOMENT_INFO[t] || { label: t, color: '#8a8a99' };
 const mainMoment = (clip) => [...(clip.moments || [])].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
 
 function initProject(session) {
+  // Montage déjà retouché (sauvegardé dans le dossier du stream) : on le reprend tel quel.
+  if (session.project && session.project.clips) return M.attachReactions({ ...M.createProject({}), ...session.project }, session.reactions);
   const clips = session.clips.map((c) => ({
     ...c, moments: session.moments.filter((m) => m.t >= c.start && m.t <= c.end),
   }));
-  return M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' });
+  return M.attachReactions(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' }), session.reactions);
 }
 
 // ---------- Lecture (aperçu) ----------
@@ -44,6 +49,31 @@ function usePlayer(project) {
   if (idx < 0) idx = project.clips.length - 1;
   const local = idx >= 0 ? t - offsets[idx] : 0;
   return { t, setT, playing, setPlaying: (v) => { if (v && t >= total) setT(0); setPlaying(v); }, idx, local, total };
+}
+
+/** La webcam du pote dans l'aperçu : incrustée dans un coin, ou en plein écran pendant le plan de coupe. */
+function FriendPreview({ clip, t, playing, vertical }) {
+  const ref = useRef(null);
+  const fr = M.friendAt(clip, t);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || !fr) return;
+    if (Math.abs(v.currentTime - fr.u) > 0.3) v.currentTime = fr.u;
+    if (playing && v.paused) v.play().catch(() => {});
+    if (!playing && !v.paused) v.pause();
+  });
+  if (!fr) return null;
+  const pos = clip.friend.pos || (vertical ? 'tr' : 'br');
+  const top = vertical && clip.layout === 'cam_top' ? 35 : 2;
+  const style = fr.full ? {} : {
+    [pos[0] === 't' ? 'top' : 'bottom']: pos[0] === 't' ? `${top}%` : '2%', [pos[1] === 'r' ? 'right' : 'left']: '3%',
+  };
+  return (
+    <div className={'pv-friend' + (fr.full ? ' full' : '')} style={style}>
+      <video ref={ref} src={`file:///${clip.friend.file}`} muted />
+      {!fr.full && <span>{clip.friend.name}</span>}
+    </div>
+  );
 }
 
 function Preview({ project, player, videoSrc }) {
@@ -79,8 +109,14 @@ function Preview({ project, player, videoSrc }) {
         {showText && mm.type === 'ace' && project.texts.ace && <div className="pv-text big">ACE</div>}
         {showText && ['multikill', 'kill'].includes(mm.type) && project.texts.killCounter && (
           <div className="pv-text">{mm.meta?.count ? `${mm.meta.count} KILLS` : 'KILL'}</div>)}
+        {clip && clip.friend && <FriendPreview clip={clip} t={clip.start + player.local} playing={player.playing} vertical={vertical} />}
         {project.texts.enabled && project.texts.pseudo && <div className="pv-pseudo">{project.texts.pseudo}</div>}
-        {project.texts.subtitles && clip && <div className={'pv-sub' + (vertical ? '' : ' h')}>OH NON <span>REGARDE</span></div>}
+        {project.texts.subtitles && clip && (() => {
+          const st = M.subtitleAt(clip, clip.start + player.local);
+          if (!st) return null;
+          return <div className={'pv-sub' + (vertical ? '' : ' h')}>{st.words.map((w, i) => (
+            <span key={i} className={i === st.current ? 'on' : ''}>{w.toUpperCase()} </span>))}</div>;
+        })()}
       </div>
     </div>
   );
@@ -200,18 +236,62 @@ function Fader({ label, value, onChange, inherited }) {
 }
 
 // ---------- Éditeur ----------
-export function Editor({ session, onBack, showTour, onTourDone }) {
+export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
   const [project, setProject] = useState(() => initProject(session));
+  // Sauvegarde automatique (1 s après la dernière modification) : rien n'est perdu en fermant l'éditeur.
+  useEffect(() => {
+    if (!session.stream.folder || !window.sklip) return undefined;
+    const t = setTimeout(() => api.saveProject(session.stream.folder, session.theme, project), 1000);
+    return () => clearTimeout(t);
+  }, [project]);
   const [selected, setSelected] = useState(project.clips[0]?.id || null);
   const [exportState, setExportState] = useState(null);
   const player = usePlayer(project);
   const clip = project.clips.find((c) => c.id === selected);
+  const [subsJob, setSubsJob] = useState(null);
+  const [friendMsg, setFriendMsg] = useState(null);
+  const [askTo, setAskTo] = useState('');
+  const [together, setTogether] = useState([]);   // potes en chat partagé pendant le clip sélectionné
+  const selClip = project.clips.find((c) => c.id === selected);
+  useEffect(() => {
+    setFriendMsg(null);
+    if (!selClip || !session.stream.folder || !api.friendsForClip) { setTogether([]); return; }
+    api.friendsForClip(session.stream.folder, { start: selClip.start, end: selClip.end })
+      .then((l) => { setTogether(l || []); setAskTo((l || [])[0] || ''); }).catch(() => setTogether([]));
+  }, [selected, selClip && selClip.start, selClip && selClip.end]);
+  // Réaction d'un pote reçue pendant que l'éditeur est ouvert : on l'ajoute au clip concerné.
+  useEffect(() => api.onFriendsEvent && api.onFriendsEvent(async (ev) => {
+    if (ev.type !== 'reaction-received' || !session.stream.folder) return;
+    const es = await api.editorSession(session.stream.folder, session.theme);
+    setProject((p) => M.attachReactions(p, es.reactions));
+    setFriendMsg(ev.status === 'ok' ? `Réaction de ${ev.friend} reçue` : `${ev.friend} : ${ev.status === 'refused' ? 'demande refusée' : "pas d'enregistrement à ce moment-là"}`);
+  }), []);
+  const subsPending = useRef(new Set());
+
+  // Sous-titres activés : on génère ceux des clips qui n'en ont pas encore (clips ajoutés compris).
+  useEffect(() => {
+    if (!project.texts.subtitles || !session.stream.video) return;
+    const missing = project.clips.filter((c) => c.subs === null && !subsPending.current.has(c.id));
+    if (!missing.length) return;
+    missing.forEach((c) => subsPending.current.add(c.id));
+    setSubsJob({ count: missing.length });
+    api.engine('transcribe', { video: session.stream.video, tracks: session.tracks || {},
+      clips: missing.map((c) => ({ id: c.id, start: c.start, end: c.end })) })
+      .then((r) => setProject((p) => Object.entries(r.clips || {}).reduce((acc, [id, words]) => M.setClipWords(acc, id, words), p)))
+      .catch((e) => setSubsJob({ error: String(e.message || e) }))
+      .finally(() => { missing.forEach((c) => subsPending.current.delete(c.id)); setSubsJob((j) => (j && j.error ? j : null)); });
+  }, [project.texts.subtitles, project.clips.map((c) => `${c.id}:${c.subs === null}`).join()]);
+
+  const seekStream = (c, t) => {
+    const i = project.clips.findIndex((x) => x.id === c.id);
+    player.setT(M.clipOffsets(project)[i] + Math.max(0, t - c.start));
+  };
   const total = M.totalDuration(project);
 
   useEffect(() => api.onEngineProgress((p) => p.command === 'render' && setExportState((s) => ({ ...s, ...p }))), []);
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;   // on écrit : pas de raccourci
       if (e.code === 'Space') { e.preventDefault(); player.setPlaying(!player.playing); }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         setProject((p) => M.removeClip(p, selected)); setSelected(null);
@@ -227,7 +307,8 @@ export function Editor({ session, onBack, showTour, onTourDone }) {
     setExportState({ fraction: 0, message: 'Préparation…' });
     const name = `sklip_${session.theme}_${project.fmt}${project.bpm ? `_${Math.round(project.bpm)}bpm` : ''}.mp4`;
     const output = session.stream.folder ? `${session.stream.folder}/montages/${name}` : name;
-    const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam: session.cam, tracks: session.tracks });
+    const post = M.suggestPost(project, { streamTitle: session.stream.title, theme: session.theme, channel: session.channel });
+    const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam: session.cam, tracks: session.tracks || {}, post });
     try {
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output });
@@ -243,7 +324,11 @@ export function Editor({ session, onBack, showTour, onTourDone }) {
           <button className="btn ghost sm" onClick={onBack}>← Retour</button>
           <div>
             <div className="ed-title">{session.stream.title}</div>
-            <div className="note">Thème : {session.theme} · cible {session.target} s</div>
+            <div className="note row nowrap">Thème :
+              {(session.themes || [session.theme]).length > 1 ? (
+                <select value={session.theme} onChange={(e) => onTheme && onTheme(e.target.value)} style={{ padding: '2px 6px' }}>
+                  {session.themes.map((t) => <option key={t} value={t}>{THEME_LABELS[t] || t}</option>)}</select>
+              ) : ` ${THEME_LABELS[session.theme] || session.theme}`} · cible {session.target} s</div>
           </div>
         </div>
         <div className="row">
@@ -329,6 +414,45 @@ export function Editor({ session, onBack, showTour, onTourDone }) {
                     <button className="link" onClick={() => setProject(M.setClipVolume(project, clip.id, tr, null))}>
                       Suivre le réglage global</button>)}
                 </div>))}
+              <div className="lbl">Réaction d'un pote</div>
+              {clip.friend ? (
+                <div className="friendbox">
+                  <div><b>{clip.friend.name}</b> <span className="note">(sa webcam, son son vient de ta piste Discord)</span></div>
+                  <div className="seg full">
+                    {Object.entries(M.REACTION_MODES).map(([k, v]) => (
+                      <button key={k} className={clip.friend.mode === k ? 'on' : ''}
+                        onClick={() => setProject(M.setFriend(project, clip.id, { mode: k }))}>{v}</button>))}
+                  </div>
+                  {clip.friend.mode === 'pip' ? (
+                    <select value={clip.friend.pos || (project.fmt === '9x16' ? 'tr' : 'br')}
+                      onChange={(e) => setProject(M.setFriend(project, clip.id, { pos: e.target.value }))}>
+                      {Object.entries(M.PIP_POSITIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  ) : (
+                    <div className="row">
+                      <span className="note">À {M.fmtTime(clip.friend.cutT)}</span>
+                      <button className="btn ghost sm" onClick={() => setProject(M.setFriend(project, clip.id, { cutT: Math.round((clip.start + player.local) * 100) / 100 }))}>Placer ici</button>
+                      <select value={clip.friend.cutDur} onChange={(e) => setProject(M.setFriend(project, clip.id, { cutDur: Number(e.target.value) }))}>
+                        {M.CUT_DURATIONS.map((d) => <option key={d} value={d}>{d} s</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <button className="link" onClick={() => setProject(M.setFriend(project, clip.id, null))}>Retirer la réaction</button>
+                </div>
+              ) : together.length ? (
+                <div className="row">
+                  <select value={askTo} onChange={(e) => setAskTo(e.target.value)}>
+                    {together.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <button className="btn ghost sm" onClick={async () => {
+                    try {
+                      await api.friendsRequest(session.stream.folder, { start: clip.start, end: clip.end, moments: clip.moments }, askTo);
+                      setFriendMsg(`Demande envoyée à ${askTo}. Sa réaction arrivera ici toute seule.`);
+                    } catch (e) { setFriendMsg(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+                  }}>Demander sa réaction</button>
+                </div>
+              ) : <div className="note">Aucun ami de confiance en chat partagé avec toi pendant ce clip.</div>}
+              {friendMsg && <div className="note friendmsg">{friendMsg}</div>}
               <button className="btn ghost danger" style={{ marginTop: 14 }}
                 onClick={() => { setProject(M.removeClip(project, clip.id)); setSelected(null); }}>Retirer ce clip</button>
             </>
@@ -337,6 +461,29 @@ export function Editor({ session, onBack, showTour, onTourDone }) {
           <h3 style={{ marginTop: 26 }}>Sous-titres</h3>
           <label className="check"><input type="checkbox" checked={project.texts.subtitles}
             onChange={(e) => setProject({ ...project, texts: { ...project.texts, subtitles: e.target.checked } })} /> Sous-titres auto, mot par mot</label>
+          {project.texts.subtitles && clip && (
+            <div className="subs">
+              {subsJob && !subsJob.error && <div className="note">Écoute de ta voix et écriture des sous-titres…</div>}
+              {subsJob && subsJob.error && <div className="bad">Sous-titres impossibles : {subsJob.error}</div>}
+              {clip.subs && clip.subs.length === 0 && <div className="note">Rien n'a été dit dans ce clip.</div>}
+              {clip.subs && clip.subs.map((line, i) => (
+                <div key={`${line.start}-${M.lineText(line)}`} className="subline">
+                  <button className="link" title="Écouter ce passage" onClick={() => seekStream(clip, line.start)}>{M.fmtTime(line.start - clip.start)}</button>
+                  <textarea rows={2} defaultValue={M.lineText(line)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
+                    onBlur={(e) => { if (e.target.value !== M.lineText(line)) setProject(M.setLineText(project, clip.id, i, e.target.value)); }} />
+                  <button className="link danger" title="Supprimer la ligne" onClick={() => setProject(M.setLineText(project, clip.id, i, ''))}>✕</button>
+                </div>))}
+              {clip.subs && (
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button className="btn ghost sm" onClick={() => {
+                    const here = project.clips[player.idx]?.id === clip.id ? clip.start + player.local : clip.start;
+                    setProject(M.addLine(project, clip.id, here, 'Ton texte'));
+                  }}>+ Ajouter une ligne ici</button>
+                  <button className="link" onClick={() => { if (window.confirm('Réécrire les sous-titres de ce clip ? Tes corrections seront perdues.')) setProject(M.updateClip(project, clip.id, { subs: null })); }}>Regénérer</button>
+                </div>)}
+              <div className="note">Clique dans une ligne pour corriger une faute ou écrire une blague. Entrée pour valider.</div>
+            </div>)}
 
           <h3 style={{ marginTop: 26 }}>Textes à l'écran</h3>
           <label className="check"><input type="checkbox" checked={project.texts.enabled}
@@ -358,7 +505,15 @@ export function Editor({ session, onBack, showTour, onTourDone }) {
         {M.TRACKS.map((tr) => (
           <Fader key={tr} label={M.TRACK_LABELS[tr]} value={project.volumes[tr]}
             onChange={(v) => setProject(M.setGlobalVolume(project, tr, v))} />))}
-        {project.volumes.music === 0 && <div className="note mixer-hint">Musique coupée : évite les problèmes de droits sur TikTok et YouTube.</div>}
+        <div className="mixer-hint">
+          <label className="check" title="Chaque son est remis à niveau, la musique baisse quand tu parles, et le volume final suit TikTok / YouTube.">
+            <input type="checkbox" checked={project.autoMix !== false} onChange={(e) => setProject({ ...project, autoMix: e.target.checked })} />
+            <b>Mixage auto</b></label>
+          <div className="note">{project.autoMix !== false
+            ? 'Ta voix reste devant : le jeu et la musique sont remis à niveau et baissent quand tu parles. 100 % = niveau idéal.'
+            : "Volumes bruts : chaque piste garde son volume d'origine."}
+            {project.volumes.music === 0 && ' Musique coupée : évite les problèmes de droits.'}</div>
+        </div>
       </div>
 
       <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player} />

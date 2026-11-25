@@ -47,9 +47,9 @@ Publication : tag `vX.Y.Z` poussé sur `skyjoytgg/sklip` → GitHub Actions cons
 (`.github/workflows/release.yml`) et le publie ; electron-updater met à jour les PC au lancement.
 
 ## Prochaine étape prioritaire
-**Détection des kills / aces / clutchs à l'image** sur les VOD de `vods/`
-(voir « À faire » dans `docs/HISTORIQUE.md`). Ensuite : capture audio WASAPI, rires/cris,
-raccourci marqueur + Stream Deck, puis relier fin du live → analyse → éditeur.
+Tester avec Sky pendant un **vrai live** : capture des pistes audio, marqueur F9 / Stream Deck, analyse
+automatique à la fin (voir « Reste à faire » de la section 8 de `docs/HISTORIQUE.md`). Ensuite : rires/cris
+dans la piste micro, VOD d'un pote (autre résolution), publication TikTok / YouTube.
 
 ## Manière de travailler avec Sky
 - Pose des questions avant les choix importants (il l'a demandé explicitement).

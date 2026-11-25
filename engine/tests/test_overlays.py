@@ -56,3 +56,21 @@ def test_incrustation_ffmpeg(tmp_path):
     render_montage(MontageSpec(video=str(src), output=str(out), clips=[clip], encoder="libx264",
                                texts={"enabled": True, "pseudo": "Sky"}))
     assert probe(str(out))["height"] == 1920
+
+
+def test_ponctuation_et_elisions_recollees():
+    from sklip_engine.overlays import Word, merge_punctuation
+    ws = [Word(0, 1, "Oulah"), Word(1, 1, "!"), Word(1.2, 1.4, "T"), Word(1.4, 1.5, "'es"), Word(1.5, 1.8, "calme"),
+          Word(1.8, 1.8, "?")]
+    assert [w.text for w in merge_punctuation(ws)] == ["Oulah!", "T'es", "calme?"]
+    assert merge_punctuation(ws)[1].end == 1.5
+
+
+def test_sous_titres_modifies_sans_chevauchement():
+    # Mots retapés à la main, très serrés : une seule phrase à l'écran à la fois.
+    ev = subtitle_events(W((5.26, 5.3, "C'est"), (5.32, 5.36, "ça"), (5.38, 5.42, "!"), (5.44, 5.48, "GG"),
+                           (5.5, 5.54, "les"), (5.56, 5.6, "gars")), 10)
+    spans = [(e.split(",")[1], e.split(",")[2], e.rsplit(",", 1)[1]) for e in ev]
+    assert "ÇA!" in spans[0][2] and all("!" != s[2].strip() for s in spans)
+    ends = [ass_time(5.44) >= s[1] for s in spans[:2]]
+    assert all(ends)

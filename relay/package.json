@@ -1,0 +1,14 @@
+{
+  "name": "sklip-relay",
+  "private": true,
+  "description": "Mini-serveur gratuit de Sklip : boîte aux lettres pour les réactions des amis (Cloudflare Workers + D1).",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/worker.test.js",
+    "dev": "wrangler dev --env dev --local",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

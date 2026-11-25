@@ -34,16 +34,55 @@ def cmd_render(p):
     spec = MontageSpec(
         video=p["video"], output=p["output"], fmt=p.get("fmt", "9x16"),
         clips=[RenderClip(c["start"], c["end"], c.get("layout", "cam_top"), c.get("volumes", {}),
-                          c.get("moments", []), c.get("words")) for c in p["clips"]],
+                          c.get("moments", []), c.get("words"), c.get("friend")) for c in p["clips"]],
         cam=Rect(**p["cam"]) if p.get("cam") else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
         volumes={**MontageSpec.__dataclass_fields__["volumes"].default_factory(), **p.get("volumes", {})},
-        texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")),
+        texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")), auto_mix=p.get("auto_mix", True),
         music_file=p.get("music_file"), music_start=p.get("music_start", 0.0),
         music_volume=p.get("music_volume", 0.8), encoder=p.get("encoder"),
     )
     out = render_montage(spec, progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+    if p.get("post"):
+        # Fiche de publication à côté de la vidéo : prête pour une future publication automatique.
+        with open(Path(out).with_suffix(".json"), "w", encoding="utf-8") as f:
+            json.dump({"video": str(Path(out).resolve()), **p["post"], "published": {}}, f, ensure_ascii=False, indent=1)
     return {"output": out}
+
+
+def cmd_transcribe(p):
+    """Sous-titres des clips, pour les afficher et les corriger dans l'éditeur.
+    Renvoie les mots en temps du stream : {"clips": {id: [{"start", "end", "text"}]}}."""
+    from .overlays import transcribe
+    mic = (p.get("tracks") or {}).get("mic")
+    out = {}
+    clips = p["clips"]
+    for i, c in enumerate(clips):
+        emit("progress", fraction=round(i / len(clips), 3), message=f"Sous-titres : clip {i + 1}/{len(clips)}")
+        if mic:   # piste micro séparée : bien meilleure reconnaissance
+            off = float(mic.get("offset", 0.0))
+            start = max(0.0, c["start"] - off)
+            words = transcribe(mic["path"], start, c["end"] - off)
+            base = start + off
+        else:
+            words = transcribe(p["video"], c["start"], c["end"])
+            base = c["start"]
+        out[str(c["id"])] = [{"start": round(base + w.start, 3), "end": round(base + w.end, 3), "text": w.text}
+                             for w in words]
+    emit("progress", fraction=1.0, message="Sous-titres prêts")
+    return {"clips": out}
+
+
+def cmd_friend_extract(p):
+    """Côté pote : sa webcam sur les secondes demandées (jamais toute la VOD)."""
+    from .friends import extract_reaction
+    return extract_reaction(p["video"], float(p["start"]), float(p["duration"]), p["out"], p.get("cam"))
+
+
+def cmd_friend_sync(p):
+    """Côté streamer : cale l'extrait du pote sur la piste Discord (ou le son de la vidéo)."""
+    from .friends import sync_reaction
+    return sync_reaction(p["extract"], p["reference"], float(p["guess"]), float(p.get("ref_offset", 0.0)))
 
 
 def cmd_detect_kills(p):
@@ -53,7 +92,7 @@ def cmd_detect_kills(p):
         scan = Scan.load(p["scan_file"])
     else:
         scan = scan_video(p["video"], fps=p.get("fps", 4.0), start=p.get("start", 0.0), duration=p.get("duration"),
-                          workers=p.get("workers", 4),
+                          workers=p.get("workers", 1),
                           progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
         if p.get("scan_file"):
             scan.save(p["scan_file"])
@@ -78,6 +117,37 @@ def cmd_detect_kills(p):
             "rounds": len(rounds), "games": len({r.game for r in rounds})}
 
 
+def cmd_analyze(p):
+    """Analyse complète d'un stream et préparation de son dossier (voir analyze.py)."""
+    from .analyze import analyze_stream
+    return analyze_stream(p["video"], p["root"], p.get("title") or Path(p["video"]).stem, p.get("themes"),
+                          p.get("target", 30.0), p.get("extra_moments"), p.get("extra_stats"), p.get("folder"),
+                          p.get("day"), capture=p.get("capture"), record_started_at=p.get("record_started_at"),
+                          partial_scans=p.get("partial_scans"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+
+
+def cmd_scan_chunk(p):
+    """Analyse pendant le live : mesure un morceau de l'enregistrement en cours et le garde dans `out`."""
+    from .kill_detect import scan_video
+    scan = scan_video(p["video"], start=p["start"], duration=p["duration"])
+    scan.save(p["out"])
+    return {"out": p["out"], "end": round(scan.end, 3), "frames": len(scan.t)}
+
+
+def cmd_capture(p):
+    """Capture des pistes audio jusqu'à l'apparition du fichier « stop » dans le dossier."""
+    from .audio_capture import DEFAULT_TRACKS, capture
+    tracks = {k: dict(v) for k, v in DEFAULT_TRACKS.items()}
+    if p.get("game_exe"):
+        tracks["game"] = {"exe": p["game_exe"] if isinstance(p["game_exe"], list) else [p["game_exe"]]}
+    if p.get("music_exe"):
+        tracks["music"] = {"exe": p["music_exe"] if isinstance(p["music_exe"], list) else [p["music_exe"]]}
+    for name in p.get("disabled", []):
+        tracks.pop(name, None)
+    return capture(p["folder"], tracks, p.get("max_seconds"),
+                   progress=lambda f, msg: emit("progress", fraction=f, message=msg))
+
+
 def cmd_benchmark(p):
     from .benchmark import run_benchmark
     return run_benchmark(p.get("seconds", 15.0),
@@ -100,7 +170,13 @@ COMMANDS = {
     "bpm": lambda p: detect_bpm_file(p["path"]),
     "stream-folder": cmd_stream_folder,
     "detect-kills": cmd_detect_kills,
+    "transcribe": cmd_transcribe,
+    "friend-extract": cmd_friend_extract,
+    "friend-sync": cmd_friend_sync,
     "benchmark": cmd_benchmark,
+    "analyze": cmd_analyze,
+    "capture": cmd_capture,
+    "scan-chunk": cmd_scan_chunk,
 }
 
 

@@ -1,0 +1,26 @@
+# Mini-serveur Sklip (Cloudflare Workers, offre gratuite). Voir docs/SERVEUR-AMIS.md pour la mise en ligne.
+name = "sklip-relay"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+TWITCH_CLIENT_ID = "88d0w53zc9hsemjvt486ekjgmkep9k"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sklip-relay"
+database_id = "A_REMPLIR_APRES_CREATION"
+
+# Ménage quotidien : tout ce qui a plus de 7 jours est effacé.
+[triggers]
+crons = ["17 4 * * *"]
+
+# Seulement pour les tests sur le PC (wrangler dev --env dev) : jetons factices « dev:<pseudo> ».
+[env.dev]
+[env.dev.vars]
+TWITCH_CLIENT_ID = "88d0w53zc9hsemjvt486ekjgmkep9k"
+DEV_FAKE_AUTH = "1"
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "sklip-relay-dev"
+database_id = "local-dev"

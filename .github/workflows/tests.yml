@@ -1,0 +1,53 @@
+# Lance tous les tests de Sklip à chaque envoi sur GitHub (et pour chaque pull request).
+# Une version n'est publiée (release.yml) que si ces mêmes tests passent.
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: FFmpeg (version « essentials » de gyan.dev)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
+          New-Item -ItemType Directory -Force vendor/ffmpeg | Out-Null
+          Get-ChildItem ffmpeg-tmp -Recurse -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination vendor/ffmpeg
+          "$PWD\vendor\ffmpeg" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: engine/requirements.txt
+
+      - name: Tests du moteur
+        working-directory: engine
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Tests de l'appli
+        working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: |
+          npm ci
+          npm test
+
+      - name: Tests du mini-serveur (amis de confiance)
+        working-directory: relay
+        run: npm test

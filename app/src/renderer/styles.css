@@ -159,3 +159,24 @@ main.full { padding: 0; overflow: hidden; }
 .livemusic { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 4px; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }
 .livemusic input { margin-top: 3px; } .livemusic.on { border-color: var(--violet); background: rgba(145,70,255,.14); }
+.ready { position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center; margin: -8px 0 18px;
+  padding: 10px 14px; border-radius: 10px; background: rgba(0,214,143,.12); border: 1px solid rgba(0,214,143,.45); }
+.pill.flash { color: var(--violet-2); font-weight: 600; }
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.subs { margin-top: 8px; display: grid; gap: 6px; }
+.subline { display: grid; grid-template-columns: 38px 1fr 18px; gap: 6px; align-items: center; }
+.subline textarea { padding: 6px 8px; font: inherit; font-size: 13px; min-width: 0; resize: none; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+.subline textarea:focus { border-color: var(--violet); outline: none; }
+.link.danger { color: #ff8a94; font-size: 13px; }
+.pv-sub span { color: #fff; } .pv-sub span.on { color: #ffd700; }
+
+/* Réaction d'un pote */
+.pv-friend { position: absolute; width: 35%; aspect-ratio: 4 / 3; border: 3px solid var(--violet); border-radius: 6px; overflow: hidden; background: #000; z-index: 3; }
+.pv-friend video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pv-friend span { position: absolute; left: 4px; bottom: 3px; font-size: 10px; font-weight: 700; background: var(--violet); padding: 1px 6px; border-radius: 3px; }
+.pv-friend.full { inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; }
+.friendbox { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+.friendmsg { margin: 6px 0; color: var(--violet-2, #bf94ff); }
+.row.friend { margin-bottom: 6px; }
+.friendrules { margin: 4px 0 12px 18px; padding: 0; }
+.friendrules li { margin: 2px 0; }

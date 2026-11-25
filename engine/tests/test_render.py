@@ -119,7 +119,8 @@ def test_garder_la_musique_du_live_sur_un_clip(fake_stream, tmp_path):
     out = tmp_path / "live_music.mp4"
     render_montage(MontageSpec(video=fake_stream["video"], output=str(out), fmt="16x9", encoder="libx264",
                                tracks=fake_stream["tracks"],
-                               clips=[RenderClip(5, 8, volumes={"music": 1.0}), RenderClip(12, 15)]))
+                               clips=[RenderClip(5, 8, volumes={"music": 1.0}), RenderClip(12, 15)],
+                               auto_mix=False))   # le micro de test parle sans arrêt : pas de ducking ici
     assert _energy_at(str(out), 900, 0.5, 2) > 0.1
     assert _energy_at(str(out), 900, 3.5, 2) < 0.01
     assert _energy_at(str(out), 500, 3.5, 2) > 0.1      # le micro reste là
@@ -136,3 +137,45 @@ def test_musique_ajoutee_coupee_pendant_la_musique_du_live(fake_stream):
     spec.tracks = {}          # pas de piste musique séparée : rien à couper
     spec.clips[1].volumes = {"music": 1.0}
     assert live_music_ranges(spec) == []
+
+
+def _tone(path, freq, dur, vol, bursts=False):
+    """Son de test : continu (musique, jeu) ou par bouts de 1 s toutes les 2 s (voix)."""
+    expr = f"{vol}*sin(2*PI*{freq}*t)" + ("*lt(mod(t,2),1)" if bursts else "")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=48000:d={dur}",
+                    "-ac", "2", str(path)], check=True)
+    return TrackFile(str(path), 0.0)
+
+
+def _band_db(path, freq, start, dur):
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(dur), "-i", path, "-ac", "1",
+                          "-ar", "8000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / 8000)
+    return 10 * np.log10(spec[(f > freq - 20) & (f < freq + 20)].sum() + 1e-12)
+
+
+def test_mixage_automatique_voix_devant(tmp_path):
+    """Voix très faible (-37 dB), musique et jeu très forts (-6 dB) : après le mixage auto,
+    la voix passe devant le jeu et largement devant la musique, et le montage est autour de -14 LUFS."""
+    from sklip_engine.mixing import _loudnorm_measure
+    video = tmp_path / "v.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8",
+                    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "8", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-c:a", "aac", str(video)], check=True)
+    tracks = {"mic": _tone(tmp_path / "mic.wav", 500, 8, 0.02, bursts=True),
+              "game": _tone(tmp_path / "game.wav", 300, 8, 0.5),
+              "music": _tone(tmp_path / "music.wav", 900, 8, 0.5)}
+    out = tmp_path / "mix.mp4"
+    render_montage(MontageSpec(video=str(video), output=str(out), fmt="16x9", encoder="libx264", tracks=tracks,
+                               volumes={"game": 1, "mic": 1, "discord": 1, "music": 1}, clips=[RenderClip(0, 8)]))
+    # Pendant que la voix parle (0,2–0,8 s) :
+    voice, game, music = (_band_db(str(out), f, 2.2, 0.6) for f in (500, 300, 900))
+    assert voice > game + 3
+    assert voice > music + 12
+    # Quand la voix se tait (1,2–1,8 s), la musique remonte (elle n'est baissée que sous la voix).
+    assert _band_db(str(out), 900, 3.3, 0.5) > music + 4
+    m = _loudnorm_measure(str(out))
+    assert abs(float(m["input_i"]) - (-14)) < 1.5

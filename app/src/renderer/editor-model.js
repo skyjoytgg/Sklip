@@ -20,6 +20,8 @@ function makeClip(c) {
     layout: c.layout || 'cam_top',
     volumes: c.volumes || {},
     moments: c.moments || [],
+    subs: c.subs || null,        // sous-titres : null = pas encore générés ; sinon lignes [{ start, end, words }]
+    friend: c.friend || null,    // réaction d'un pote : { id, name, file, offset, duration, mode, pos, cutT, cutDur }
   };
 }
 
@@ -30,6 +32,7 @@ function createProject({ clips = [], streamDuration, fmt = '9x16', bpm = null, v
     bpm,
     clips: clips.map(makeClip),
     volumes: { ...DEFAULT_VOLUMES, ...(volumes || {}) },
+    autoMix: true,               // niveaux cohérents, voix devant, volume final -14 LUFS
     texts: { subtitles: true, enabled: false, ace: true, killCounter: true, pseudo: '', ...(texts || {}) },
   };
 }
@@ -140,9 +143,161 @@ function setLiveMusic(p, id, on) {
   return updateClip(p, id, { volumes });
 }
 
+/**
+ * Texte proposé pour poster la vidéo (titre, description, hashtags). Gardé à côté du montage dans un .json,
+ * pour qu'une future publication automatique (TikTok, YouTube Shorts) n'ait plus qu'à l'envoyer.
+ */
+function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}) {
+  const all = p.clips.flatMap((c) => c.moments || []);
+  const has = (t) => all.find((m) => m.type === t);
+  const best = all.reduce((a, m) => (!a || (m.meta?.count || 1) > (a.meta?.count || 1) ? m : a), null);
+  let title;
+  if (has('ace')) title = 'ACE 🔥';
+  else if (has('clutch')) title = `Clutch ${has('clutch').meta?.vs ? `1v${has('clutch').meta.vs}` : ''} 🧠`.replace('  ', ' ');
+  else if (best && best.type === 'multikill') title = `${best.meta.count}K 😤`;
+  else if (theme === 'drole') title = 'Le moment où tout part en vrille 😂';
+  else if (theme === 'communaute') title = 'Merci la commu ❤️';
+  else title = 'Les meilleurs kills du stream 🎯';
+  const tags = ['#valorant', '#valorantclips', '#twitch', '#gaming'];
+  if (p.fmt === '9x16') tags.push('#shorts', '#fyp');
+  if (theme === 'drole') tags.push('#funny');
+  const desc = [streamTitle && `Extrait du live « ${streamTitle} »`, channel && `En live sur twitch.tv/${channel}`]
+    .filter(Boolean).join(' — ');
+  return { title: title.trim(), description: desc, hashtags: tags, format: p.fmt, duration: Math.round(totalDuration(p) * 10) / 10 };
+}
+
+// ---------- Sous-titres modifiables ----------
+// Les temps sont ceux du stream : rogner ou déplacer un clip ne décale pas ce qui a été écrit.
+
+const LINE_MAX_WORDS = 6;
+const LINE_MAX_GAP = 0.8;
+
+/** Mots reconnus → lignes faciles à corriger (coupées sur un blanc, une ponctuation ou 6 mots). */
+function linesFromWords(words) {
+  const lines = [];
+  for (const w of words) {
+    const last = lines[lines.length - 1];
+    const prev = last && last.words[last.words.length - 1];
+    if (last && last.words.length < LINE_MAX_WORDS && w.start - prev.end <= LINE_MAX_GAP && !/[.!?…]$/.test(prev.text)) {
+      last.words.push(w);
+      last.end = w.end;
+    } else {
+      lines.push({ start: w.start, end: w.end, words: [w] });
+    }
+  }
+  return lines;
+}
+
+const lineText = (line) => line.words.map((w) => w.text).join(' ');
+
+/** Ajoute les sous-titres générés (mots en temps du stream) au clip. */
+function setClipWords(p, id, words) {
+  return updateClip(p, id, { subs: linesFromWords(words) });
+}
+
+/**
+ * Corrige le texte d'une ligne. Même nombre de mots : on garde le timing de chaque mot (correction d'une faute).
+ * Sinon (blague, phrase réécrite) : les nouveaux mots se partagent la durée de la ligne. Texte vide : ligne supprimée.
+ */
+function setLineText(p, id, index, text) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c || !c.subs || !c.subs[index]) return p;
+  const line = c.subs[index];
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  const subs = c.subs.slice();
+  if (!parts.length) {
+    subs.splice(index, 1);
+  } else if (parts.length === line.words.length) {
+    subs[index] = { ...line, words: line.words.map((w, i) => ({ ...w, text: parts[i] })) };
+  } else {
+    const step = Math.max(0.05, (line.end - line.start) / parts.length);
+    subs[index] = { ...line, words: parts.map((t, i) => ({ start: round(line.start + i * step), end: round(line.start + (i + 1) * step), text: t })) };
+  }
+  return updateClip(p, id, { subs });
+}
+
+/** Ajoute une ligne à l'instant `t` (temps du stream), par ex. pour une blague. */
+function addLine(p, id, t, text = 'Texte', duration = 1.5) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  const start = round(Math.max(c.start, Math.min(t, c.end - 0.3)));
+  const end = round(Math.min(c.end, start + duration));
+  const subs = [...(c.subs || []), { start, end, words: [{ start, end, text }] }].sort((a, b) => a.start - b.start);
+  return updateClip(p, id, { subs });
+}
+
+/** Mots du clip pour le rendu (temps relatifs au clip), ou undefined si jamais générés (le moteur s'en charge). */
+function clipWordsForRender(c) {
+  if (!c.subs) return undefined;
+  return c.subs.flatMap((l) => l.words)
+    .filter((w) => w.end > c.start && w.start < c.end)
+    .map((w) => ({ start: round(Math.max(0, w.start - c.start)), end: round(Math.min(c.end, w.end) - c.start), text: w.text }));
+}
+
+/** Ligne affichée dans l'aperçu à l'instant `t` (temps du stream), avec l'index du mot prononcé. */
+function subtitleAt(c, t) {
+  if (!c || !c.subs) return null;
+  const line = c.subs.find((l) => t >= l.start && t <= l.end + 0.15);
+  if (!line) return null;
+  let k = line.words.findIndex((w) => t >= w.start && t < w.end);
+  if (k < 0) k = line.words.filter((w) => w.start <= t).length - 1;
+  return { words: line.words.map((w) => w.text), current: k };
+}
+
 /** Paramètres envoyés au moteur (commande `render`). */
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart }) {
+// ---------- Réactions des amis ----------
+const REACTION_MODES = { pip: 'Incrustation', cut: 'Plan de coupe' };
+const PIP_POSITIONS = { tr: 'Haut droite', tl: 'Haut gauche', br: 'Bas droite', bl: 'Bas gauche' };
+const CUT_DURATIONS = [1.5, 2.5, 4];
+
+/** Réactions reçues → clips qui contiennent le moment (incrustation par défaut). Une réaction retirée ne revient pas. */
+function attachReactions(p, reactions) {
+  const dismissed = new Set(p.dismissedReactions || []);
+  const used = new Set(p.clips.filter((c) => c.friend).map((c) => c.friend.id));
+  let changed = false;
+  const clips = p.clips.map((c) => {
+    if (c.friend) return c;
+    const r = (reactions || []).find((x) => x.status === 'ok' && x.file && !dismissed.has(x.id) && !used.has(x.id)
+      && x.t >= c.start && x.t <= c.end);
+    if (!r) return c;
+    used.add(r.id);
+    changed = true;
+    return { ...c, friend: { id: r.id, name: r.friend, file: r.file, offset: r.offset, duration: r.duration || null,
+      mode: 'pip', pos: null, cutT: round(r.t + 0.3), cutDur: 2.5 } };
+  });
+  return changed ? { ...p, clips } : p;
+}
+
+function setFriend(p, id, patch) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c || !c.friend) return p;
+  if (patch === null) {   // retirer la réaction de ce clip
+    return { ...updateClip(p, id, { friend: null }), dismissedReactions: [...(p.dismissedReactions || []), c.friend.id] };
+  }
+  return updateClip(p, id, { friend: { ...c.friend, ...patch } });
+}
+
+/** Ce qu'on voit du pote à l'instant `t` du stream : null, ou { u (temps dans son extrait), full (plan de coupe) }. */
+function friendAt(c, t) {
+  const f = c.friend;
+  if (!f) return null;
+  const u = t - f.offset;
+  if (u < 0 || (f.duration && u > f.duration)) return null;
+  if (f.mode === 'cut') return t >= f.cutT && t < f.cutT + f.cutDur ? { u, full: true } : null;
+  return { u, full: false };
+}
+
+function friendForRender(c) {
+  const f = c.friend;
+  if (!f) return undefined;
+  return { file: f.file, offset: f.offset, mode: f.mode, pos: f.pos || undefined,
+    cut_at: round(Math.max(0, f.cutT - c.start)), cut_dur: f.cutDur };
+}
+
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post }) {
   return {
+    post: post || null,
+    auto_mix: p.autoMix !== false,
     video, output, cam, fmt: p.fmt,
     tracks: tracks || {},
     volumes: p.volumes,
@@ -152,7 +307,7 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart }) 
     music_file: musicFile || null,
     music_start: musicStart || 0,
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
-      moments: c.moments })),
+      moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c) })),
   };
 }
 
@@ -167,5 +322,7 @@ function fmtTime(s) {
 module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
-  isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, snapDuration, fmtTime,
+  isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
+  REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
+  linesFromWords, lineText, setClipWords, setLineText, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

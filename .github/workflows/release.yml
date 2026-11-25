@@ -15,6 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: FFmpeg (version « essentials » de gyan.dev)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
+          New-Item -ItemType Directory -Force vendor/ffmpeg | Out-Null
+          Get-ChildItem ffmpeg-tmp -Recurse -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination vendor/ffmpeg
+          "$PWD\vendor\ffmpeg" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -29,14 +38,6 @@ jobs:
         working-directory: engine
         run: .\build.bat
         shell: cmd
-
-      - name: FFmpeg (version « essentials » de gyan.dev)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ffmpeg.zip
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
-          New-Item -ItemType Directory -Force vendor/ffmpeg | Out-Null
-          Get-ChildItem ffmpeg-tmp -Recurse -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination vendor/ffmpeg
 
       - uses: actions/setup-node@v4
         with:

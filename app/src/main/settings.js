@@ -10,11 +10,12 @@ const DEFAULTS = {
   themes: ['kills'],
   targetDuration: 30,                    // 15 à 60 s
   formats: ['9x16'],
-  cam: { x: 0, y: 0, w: 0.22, h: 0.3 },  // webcam (normalisée), en haut à gauche par défaut, réglable
+  cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222, enabled: true },  // webcam de Sky (VOD du 01/11), réglable
   audio: {
     captureEnabled: true,
     micDevice: null,
-    musicApp: 'Spotify.exe',
+    musicApp: 'Spotify.exe',               // logiciel de musique capturé à part
+    gameApp: 'VALORANT-Win64-Shipping.exe',
     useObsTracksIfPresent: false,
     volumes: { game: 1, mic: 1, discord: 1, music: 0 },
   },
@@ -26,6 +27,8 @@ const DEFAULTS = {
   firstRunDone: false,                   // assistant de départ terminé (ou passé)
   editorTourDone: false,                 // bulles guidées de l'éditeur vues (ou passées)
   pcTest: null,                          // dernier résultat du test du PC
+  lastSessionFolder: null,               // dernier stream analysé (ouvert par « Montage »)
+  friends: [],                           // amis de confiance (pseudos Twitch) : [{ login, autoAccept }]
 };
 
 function deepMerge(base, over) {

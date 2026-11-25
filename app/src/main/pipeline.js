@@ -1,0 +1,66 @@
+// Fin du live → analyse → éditeur. Fonctions pures (testées dans test/pipeline.test.js) :
+// on rassemble les moments venus d'ailleurs que l'image (Twitch, marqueurs) dans le temps de la vidéo.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const tm = require('./twitch-moments');
+
+/** Marqueurs (raccourci clavier, Stream Deck) : instants en ms → moments dans le temps de l'enregistrement. */
+function markerMoments(markers, recordStartMs) {
+  if (!recordStartMs) return [];
+  return markers
+    .map((m) => ({ type: 'marker', t: Math.round((m.at - recordStartMs) / 10) / 100, meta: { source: m.source || 'raccourci' } }))
+    .filter((m) => m.t >= 0);
+}
+
+/** Lit les fichiers Twitch « en attente » (un par live terminé). */
+function readPendingTwitch(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => /^twitch-.*\.json$/.test(f)).map((f) => {
+    try { return { file: path.join(dir, f), ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; } catch { return null; }
+  }).filter(Boolean);
+}
+
+/** Le live Twitch qui chevauche l'enregistrement (ou null). */
+function pickTwitchData(pending, recordStartMs, recordStopMs) {
+  const overlap = (d) => Math.min(d.endedAt, recordStopMs) - Math.max(d.startedAt, recordStartMs);
+  const ok = pending.filter((d) => d.startedAt && d.endedAt && overlap(d) > 0);
+  return ok.sort((a, b) => overlap(b) - overlap(a))[0] || null;
+}
+
+/** Moments Twitch dans le temps de l'enregistrement + stats (raids, peak). */
+function twitchExtras(data, recordStartMs) {
+  if (!data) return { moments: [], stats: {} };
+  let moments = data.moments || [];
+  // Si l'enregistrement n'était pas connu à la fin du live, on recale maintenant.
+  if (!data.recordStartedAt && recordStartMs) moments = tm.streamToRecordingTime(moments, data.startedAt, recordStartMs);
+  const viewers = (data.viewers || []).map((v) => v.viewers);
+  return {
+    moments,
+    stats: {
+      raids: (data.raids || []).map((r) => ({ channel: r.channel, viewers: r.viewers })),
+      peak_viewers: viewers.length ? Math.max(...viewers) : null,
+    },
+    title: data.title || null,
+  };
+}
+
+/** Titre du dossier : titre du live Twitch, sinon « Stream du 25/11 ». */
+function streamTitle(twitchTitle, date = new Date()) {
+  if (twitchTitle && twitchTitle.trim()) return twitchTitle.trim();
+  return `Stream du ${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Session du moteur → données de l'éditeur pour un thème. */
+function editorSession(session, theme, { cam, tracks } = {}) {
+  const th = session.clips[theme] ? theme : session.themes[0];
+  return {
+    stream: { title: session.title, duration: session.duration, video: session.video, folder: session.folder },
+    theme: th, themes: session.themes, target: session.target,
+    moments: session.moments, clips: session.clips[th] || [],
+    cam: cam && cam.enabled !== false ? { x: cam.x, y: cam.y, w: cam.w, h: cam.h } : null,
+    tracks: tracks || session.tracks || null,
+  };
+}
+
+module.exports = { markerMoments, readPendingTwitch, pickTwitchData, twitchExtras, streamTitle, editorSession };

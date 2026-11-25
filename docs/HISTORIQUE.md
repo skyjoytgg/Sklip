@@ -259,3 +259,124 @@ Demande de Sky : pouvoir garder, clip par clip, la chanson qui passait pendant l
 - Sans piste musique séparée (VOD, Sklip lancé en retard), la musique est déjà dans le son du stream :
   l'éditeur le signale.
 - Test de rendu réel : la musique (900 Hz) s'entend sur le clip gardé et disparaît sur le suivant.
+
+## 8. Claude Code — 25/11/2026 : la grande série d'améliorations
+
+Demande de Sky : « fais tout sauf la publication (mais prévois-la) ; je récupérerai une VOD d'un pote plus tard ».
+
+- **Tests sur GitHub** (`.github/workflows/tests.yml`) : moteur + appli à chaque envoi sur `main`.
+  `release.yml` installe maintenant FFmpeg **avant** les tests (les tests de rendu en ont besoin).
+- **Journal de bug** (`app/src/main/logger.js`) : `logs/sklip-AAAA-MM-JJ.log` (7 jours), erreurs du moteur,
+  d'OBS, de Twitch et de l'interface. Réglages → « Créer un rapport de bug » : un .txt sur le Bureau,
+  mots de passe et jetons masqués.
+- **Analyse 5× plus rapide** : on ne décode plus les images B (`-skip_frame noref`) et un seul FFmpeg à la fois
+  (plusieurs en parallèle se gênaient : 4 → 8× le temps réel, 1 → 16×). Le décodage par la carte graphique
+  (RX 6600) a été mesuré : pas plus rapide (13×), donc pas utilisé.
+  VOD du 01/11 (3 h 45) : **8 min 37 au lieu de 41 min**, mêmes 75 kills et 97 morts.
+- **Analyse → éditeur** (`engine/sklip_engine/analyze.py`, commande `analyze`) : vidéo → kills / multi-kills /
+  aces / clutchs / morts + moments Twitch et marqueurs → classement → clips par thème → dossier du stream
+  (`session.json`, `stats.json`, `stats.html`, cache `.sklip/`). Côté appli (`pipeline.js`, `main.js`) :
+  fin d'enregistrement OBS → analyse automatique (sauf mode manuel ; on attend 90 s le résumé Twitch),
+  notification Windows « Tes montages sont prêts », bandeau dans l'appli, Historique → « Monter ».
+  L'éditeur ouvre le vrai stream (vidéo, moments, thèmes) ; les données d'exemple ne servent plus que dans un navigateur.
+- **Classement plus malin** (`ranking.py`) : bonus si le chat réagit, si le streamer rit, si un viewer a clippé
+  ou si un marqueur est proche (plafond +40). Nouvelles « morts drôles » : mort suivie d'un rire ou d'un pic de chat.
+- **Marqueur** (`markers.js`) : raccourci global (F9, réglable ; vérifie s'il est libre) et, pour le Stream Deck,
+  `http://127.0.0.1:47811/marker` (local uniquement). Compté seulement pendant un enregistrement OBS ;
+  la barre latérale affiche « 📍 3 marqueurs ».
+- **Capture du son à part** (`audio_capture.py`, commande `capture`) : « process loopback » de Windows → une piste
+  par logiciel (Valorant, Discord, Spotify — réglables) + le micro par défaut, encodées en Opus 160 kb/s,
+  silence ajouté quand un logiciel se tait ou n'est pas ouvert. Démarre/s'arrête avec l'enregistrement OBS
+  (fichier `stop`). Décalage = horloge, affiné par corrélation sur le son du jeu (`tracks_for_video`).
+  Testé pour de vrai : un son de 1000 Hz joué par un processus n'apparaît que sur sa piste.
+  Captures gardées dans `captures/` (supprimées après « Garder les fichiers de travail » jours).
+  **Pas encore testé pendant un vrai live** avec Valorant/Discord/Spotify.
+- **Analyse pendant le live** (`live-analysis.js`, commande `scan-chunk`) : en mode « Pendant le stream »,
+  toutes les 5 min, Sklip mesure le morceau d'enregistrement déjà écrit (fichier trouvé avec `GetRecordDirectory`,
+  lecture seule) ; à la fin il ne reste que les dernières minutes. Vérifié sur un MKV en cours d'écriture.
+  Un MP4 classique n'est pas lisible pendant l'écriture → on retombe sur l'analyse après le live.
+- **Publication (plus tard)** : chaque export écrit une fiche `montage.json` à côté de la vidéo (titre proposé,
+  description, hashtags, format, durée, `published: {}`) — une future publication TikTok / YouTube n'aura qu'à l'envoyer.
+- Webcam par défaut calée sur la vraie cam de Sky (x 2,6 %, y 5,6 %, 22,4 × 22,2 %).
+- Essai de bout en bout dans l'appli : extrait de 4 min de la VOD du 01/11 → analyse en 13 s → éditeur avec
+  le kill de 34:38 et un 2K → export 9:16 de 24 s + fiche de publication.
+- Tests : 62 moteur, 43 appli, tous OK.
+
+### Reste à faire
+1. Tester pendant un vrai live : capture des pistes (Valorant, Discord, Spotify), marqueur F9, analyse auto.
+2. VOD d'un pote (autre résolution, 4:3 étiré) quand Sky l'aura.
+3. Publication TikTok / YouTube Shorts (la fiche .json est prête).
+4. Détecter les rires et les cris dans la piste micro (maintenant qu'elle existe).
+5. Détecter la webcam automatiquement (aujourd'hui : coins ou position de Sky par défaut).
+
+## 9. Claude Code — 25/11/2026 : sous-titres modifiables et mixage automatique
+
+Demande de Sky : pouvoir corriger les sous-titres générés (erreurs, blagues) et un mixage cohérent
+(la musique pas plus forte que la voix).
+
+**Sous-titres**
+- Générés automatiquement à l'ouverture de l'éditeur (faster-whisper, piste micro si elle existe),
+  commande moteur `transcribe`. Ponctuation et élisions recollées (« T'es », « ça! »).
+- Panneau de droite : une zone de texte par ligne, on retape ce qu'on veut, ✕ pour supprimer,
+  « + Ajouter une ligne ici » (à la position de lecture), « Regénérer » (avec confirmation).
+  Si le nombre de mots change, les nouveaux mots sont répartis sur la durée de la ligne.
+- Aperçu en direct dans l'éditeur, mot prononcé surligné ; même rendu incrusté à l'export
+  (une seule phrase à l'écran à la fois).
+- Le montage est sauvegardé tout seul (`montage-<thème>.json` dans le dossier du stream) :
+  corrections gardées si on ferme l'appli.
+
+**Mixage automatique** (`engine/sklip_engine/mixing.py`, case « Mixage auto » cochée par défaut)
+1. Chaque piste est ramenée à son niveau : voix −18 dB, Discord −20, jeu −24, musique −29
+   (mesuré seulement quand la piste fait du bruit). Les curseurs du streamer s'appliquent ensuite.
+2. Quand le streamer parle, la musique baisse fort et le jeu un peu (ducking).
+3. Volume final du montage à −14 LUFS (recommandation TikTok / YouTube), crêtes à −1,5 dB.
+Vérifié : test avec voix + jeu + musique synthétiques (voix devant, musique qui remonte dans les pauses),
+et export réel dans l'appli (−14,8 LUFS, sous-titre corrigé visible dans la vidéo).
+
+## 10. Claude Code — 25/11/2026 : réactions des amis de confiance
+
+Demande de Sky : quand il fait un ace ou un clutch en chat partagé avec un pote, récupérer la réaction
+du pote (sa vidéo ; son son est déjà sur la piste Discord de Sky), sans demander toute sa VOD.
+Choix de Sky : amis de confiance (le pote a Sklip), webcam du pote **en incrustation par défaut**,
+le streamer peut passer en **plan de coupe** ; les extraits passent par un **dossier partagé** (OneDrive / Google Drive).
+
+**Comment ça marche** (`app/src/main/friends.js`, `engine/sklip_engine/friends.py`)
+- Réglages → Amis de confiance : dossier partagé, pseudo (Twitch par défaut), liste des potes,
+  « Envoyer ma réaction sans me demander » (sinon le pote valide chaque demande), demandes reçues.
+- Pendant l'enregistrement, Sklip regarde toutes les 2 min qui est dans le chat partagé Twitch
+  (`GET /shared_chat/session`, aucun droit en plus). Après l'analyse : une demande par ace/clutch
+  et par ami de confiance présent. Dans l'éditeur : bouton « Demander sa réaction » sur n'importe quel clip.
+- Dossier partagé : `demandes/<id>.json` (heures de début/fin), `extraits/<id>.json` + `.mp4`.
+  Rien de local (dossiers du PC) n'est écrit dedans ; tout est effacé une fois la réaction récupérée.
+- Côté pote : Sklip note chaque enregistrement OBS (`recordings.json`), retrouve le passage, découpe
+  **seulement sa webcam** (480p) sur ces secondes. Jamais pendant son live (fait après). OBS non modifié, enregistrement juste lu.
+- Côté streamer : la réaction est copiée dans `<stream>/reactions/`, calée au son sur la piste Discord
+  (corrige l'écart d'horloge entre les PC), listée dans `reactions.json`, ajoutée au clip du moment.
+- Éditeur : Incrustation (coin au choix, cadre violet) / Plan de coupe (« Placer ici », 1,5 / 2,5 / 4 s), « Retirer la réaction ».
+- `session.json` contient maintenant `record_started_at` (heure du début de l'enregistrement).
+
+Vérifié : tests moteur (découpe webcam, calage au son avec 2,4 s d'écart d'horloge, rendu incrustation et
+plan de coupe) et appli (aller-retour complet entre deux Sklip, refus, pote en live, fichier en cours de synchro) ;
+puis deux Sklip lancés en même temps sur le PC de Sky avec un dossier partagé : réaction reçue en 26 s,
+horloge du « pote » décalée de 1,5 s corrigée exactement, exports incrustation et plan de coupe vérifiés à l'image.
+Pas encore testé : un vrai chat partagé Twitch et un vrai dossier OneDrive entre deux PC.
+
+### 10 bis. Même jour : chat partagé obligatoire et mini-serveur (plus de dossier partagé)
+
+Demandes de Sky : même un ami de confiance ne reçoit la webcam **que si on était en chat partagé** ;
+et le streamer doit avoir le moins possible à régler. Choix de Sky : **mini-serveur gratuit**.
+- Règle du chat partagé vérifiée **chez le pote** : son Sklip relève lui-même le chat partagé Twitch toutes les 2 min
+  pendant ses lives (`presence.json`, gardé 30 jours). Sans relevé commun → réponse `not_together`, rien n'est découpé.
+  Dans l'éditeur, « Demander sa réaction » ne propose que les potes vus en chat partagé pendant le clip.
+- Le dossier partagé (OneDrive) est supprimé. À la place : `relay/` = Cloudflare Workers + D1 (offre gratuite).
+  Identité = le jeton Twitch déjà dans Sklip (vérifié auprès de Twitch, seulement les jetons de l'appli Sklip).
+  Messages et fichiers (morceaux de 1 Mo) lisibles seulement par l'expéditeur et le destinataire, effacés dès récupération,
+  ménage quotidien après 7 jours. Tables créées automatiquement. Client : `app/src/main/relay.js`.
+- Réglages → Amis de confiance : juste les pseudos Twitch des potes (+ « Envoyer ma réaction sans me demander »).
+- Extraits limités à ~900 kbit/s (16 s ≈ 1 Mo).
+- Adresse du serveur : `relayUrl` dans `app/config.json` (vide tant que Sky ne l'a pas mis en ligne :
+  voir `docs/SERVEUR-AMIS.md`). Tests GitHub : ajout des tests du serveur.
+Vérifié : tests serveur (6), appli (53, avec le vrai code du serveur en mémoire, dont « pote pas en chat partagé »),
+serveur lancé en local avec la vraie base D1, deux Sklip sur le PC : réaction reçue en 111 s, calage exact,
+serveur vide après récupération. Pas encore testé : le serveur en ligne et un vrai chat partagé Twitch.
+

@@ -1,4 +1,5 @@
 // Dans Electron : window.sklip (preload). Dans un navigateur : données factices pour l'aperçu.
+import { DEMO_SESSION } from './demo-data.js';
 const progressCbs = new Set();
 const twitchCbs = new Set();
 let twitchState = { connected: false };
@@ -7,7 +8,7 @@ const mock = (() => {
     obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: false },
     analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 30, formats: ['9x16', '16x9'],
     audio: { captureEnabled: true, volumes: { game: 1, mic: 1, discord: 1, music: 0 } }, markerHotkey: 'F9', retentionDays: 7,
-    cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, firstRunDone: false, editorTourDone: false, pcTest: null,
+    cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, friends: [{ login: 'kamel', autoAccept: true }], firstRunDone: false, editorTourDone: false, pcTest: null,
   };
   const merge = (a, b) => (b && typeof b === 'object' && !Array.isArray(b) && a && typeof a === 'object'
     ? Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((k) => [k, k in b ? merge(a[k], b[k]) : a[k]]))
@@ -19,7 +20,14 @@ const mock = (() => {
       settings = merge(settings, p);
       return settings;
     },
-    engine: async (command) => {
+    engine: async (command, params) => {
+      if (command === 'transcribe') {   // Aperçu : faux sous-titres
+        await new Promise((r) => setTimeout(r, 600));
+        return { clips: Object.fromEntries(params.clips.map((c) => [c.id, [
+          { start: c.start + 0.5, end: c.start + 0.9, text: 'Oh' }, { start: c.start + 0.9, end: c.start + 1.3, text: 'non' },
+          { start: c.start + 1.3, end: c.start + 1.9, text: 'regarde!' }, { start: c.start + 3, end: c.start + 3.6, text: 'Il' },
+          { start: c.start + 3.6, end: c.start + 4.1, text: 'est' }, { start: c.start + 4.1, end: c.start + 4.8, text: 'mort!' }]])) };
+      }
       // Aperçu : simule l'avancement d'un rendu.
       for (let i = 1; i <= 5; i++) {
         await new Promise((r) => setTimeout(r, 300));
@@ -32,6 +40,15 @@ const mock = (() => {
         stats: { kills: 87, aces: 1, raids: [{ channel: 'Kamel', viewers: 42 }], peak_viewers: 134 } },
     ],
     openVideo: async () => null,
+    analyzeVideo: async () => ({ folder: 'demo' }),
+    analysisStatus: async () => ({ running: false }),
+    editorSession: async (_f, theme) => ({ ...DEMO_SESSION, theme: theme || 'kills', themes: ['kills', 'drole'] }),
+    onAnalysisState: noop, onAnalysisDone: noop,
+    addMarker: async () => ({ at: Date.now() }),
+    markerHotkeyOk: async () => true,
+    onMarker: noop,
+    bugReport: async () => 'Bureau/sklip-rapport.txt',
+    openLogs: async () => {},
     testPc: async () => {
       // Aperçu : faux test d'un PC puissant.
       for (const [f, m] of [[0.05, 'Préparation de la vidéo de test'], [0.35, "Mesure de la vitesse d'analyse"], [0.85, "Recherche de l'encodeur vidéo"]]) {
@@ -56,6 +73,12 @@ const mock = (() => {
     onObsStatus: (cb) => { setTimeout(() => cb({ connected: true }), 0); return () => {}; },
     onObsState: noop, onObsEvent: noop, onObsError: noop,
     onEngineProgress: (cb) => { progressCbs.add(cb); return () => progressCbs.delete(cb); },
+    friendsStatus: async () => ({ ready: true, login: 'sky' }),
+    friendsForClip: async () => ['kamel'],
+    friendsPending: async () => [{ id: 'kamel-sky-1', from: 'kamel', reason: 'ace', wall_start: Date.now() - 3600e3 }],
+    friendsAccept: async () => {}, friendsRefuse: async () => {},
+    friendsRequest: async () => 'demo', friendsCheck: async () => {},
+    onFriendsEvent: noop,
   };
 })();
 

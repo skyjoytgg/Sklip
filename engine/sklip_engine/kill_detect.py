@@ -59,6 +59,25 @@ class Scan:
         d = np.load(path)
         return cls(float(d["fps"]), d["t"], d["banner"], d["spectate"])
 
+    @property
+    def end(self) -> float:
+        """Fin de la partie mesurée (s)."""
+        return float(self.t[-1]) + 1 / self.fps if len(self.t) else 0.0
+
+    @classmethod
+    def concat(cls, scans: list["Scan"]) -> "Scan":
+        """Recolle des mesures faites morceau par morceau (analyse pendant le live), sans doublons."""
+        scans = [s for s in sorted(scans, key=lambda s: s.t[0] if len(s.t) else 0) if len(s.t)]
+        if not scans:
+            return cls(4.0, np.zeros(0), np.zeros(0, np.float32), np.zeros(0, np.float32))
+        t, b, sp, last = [], [], [], -1.0
+        for s in scans:
+            keep = s.t > last + 1e-6
+            t.append(s.t[keep]); b.append(s.banner[keep]); sp.append(s.spectate[keep])
+            last = float(s.t[keep][-1]) if keep.any() else last
+        return cls(scans[0].fps, np.concatenate(t), np.concatenate(b).astype(np.float32),
+                   np.concatenate(sp).astype(np.float32))
+
 
 @dataclass
 class KillEvent:
@@ -115,7 +134,11 @@ def _probe(video: str) -> tuple[int, int, float]:
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration",
          "-of", "default=nw=1", video], capture_output=True, text=True, check=True).stdout
     vals = dict(line.split("=", 1) for line in out.split() if "=" in line)
-    return int(vals["width"]), int(vals["height"]), float(vals["duration"])
+    try:
+        total = float(vals["duration"])
+    except (KeyError, ValueError):     # enregistrement encore en cours : durée inconnue
+        total = float("inf")
+    return int(vals["width"]), int(vals["height"]), total
 
 
 def _filter(w: int, h: int, fps: float) -> str:
@@ -129,8 +152,13 @@ def _filter(w: int, h: int, fps: float) -> str:
             f"[ban][spec]vstack")
 
 
+# Les images « non référencées » (images B) ne sont pas décodées : on n'analyse que 4 images/s sur 60,
+# et ça rend la lecture ~1,7× plus rapide (mesuré sur la VOD du 01/11 : 16× → 27× le temps réel).
+FAST_DECODE = ["-skip_frame", "noref"]
+
+
 def _scan_segment(video: str, w: int, h: int, start: float, dur: float, fps: float):
-    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an",
+    cmd = ["ffmpeg", "-v", "error", *FAST_DECODE, "-ss", f"{start:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an",
            "-filter_complex", _filter(w, h, fps), "-f", "rawvideo", "-"]
     fh = BANNER_PX + SPEC_H
     frame_bytes = BANNER_PX * fh
@@ -147,13 +175,16 @@ def _scan_segment(video: str, w: int, h: int, start: float, dur: float, fps: flo
 
 
 def scan_video(video: str, fps: float = 4.0, start: float = 0.0, duration: float | None = None,
-               workers: int = 4, segment: float = 600.0, progress=None) -> Scan:
+               workers: int = 1, segment: float = 600.0, progress=None) -> Scan:
     """Mesure l'emblème et l'icône de spectateur sur toute la vidéo (ou une partie).
 
-    La vidéo est découpée en segments de `segment` secondes lus en parallèle par `workers` FFmpeg.
+    La vidéo est découpée en segments de `segment` secondes. Un seul FFmpeg à la fois suffit : il utilise
+    déjà tous les cœurs, et plusieurs en parallèle se gênent (mesuré : 4 en parallèle = 8× au lieu de 16×).
     """
     w, h, total = _probe(video)
     end = total if duration is None else min(total, start + duration)
+    if end == float("inf"):
+        raise ValueError("Durée de la vidéo inconnue : précise `duration`")
     seg_starts = list(np.arange(start, end, segment))
     results: dict[float, tuple] = {}
     done = 0
