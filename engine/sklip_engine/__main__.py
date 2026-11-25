@@ -159,6 +159,12 @@ def cmd_benchmark(p):
                          progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
+def cmd_focus(p):
+    """Éditeur : le streamer passe un clip en « Cam en grand » → où est son visage dans la webcam ?"""
+    from .camfocus import clip_focus
+    return {"focus": clip_focus(p["video"], p["cam"], float(p["start"]), float(p["end"]))}
+
+
 def cmd_thumb(p):
     """Miniature d'un live (une image de la vidéo, 320 px de large). La vidéo est seulement lue."""
     import subprocess
@@ -196,6 +202,7 @@ COMMANDS = {
     "capture": cmd_capture,
     "scan-chunk": cmd_scan_chunk,
     "thumb": cmd_thumb,
+    "focus": cmd_focus,
 }
 
 

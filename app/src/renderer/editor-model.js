@@ -20,7 +20,8 @@ function makeClip(c) {
     layout: c.layout || 'cam_top',
     cam: c.cam || null,          // webcam de la scène OBS de ce clip (Just Chatting…), sinon celle du montage
     scene: c.scene || null,      // passage : « VALORANT », « Just Chatting »…
-    focus: c.focus || null,      // « Cam en grand » : centre du visage dans la webcam ({ x, y } de 0 à 1)
+    focus: c.focus,              // « Cam en grand » : centre du visage dans la webcam ({ x, y } de 0 à 1) ;
+                                 // undefined = pas encore cherché, null = pas trouvé (centre de la webcam)
     volumes: c.volumes || {},
     moments: c.moments || [],
     subs: c.subs || null,        // sous-titres : null = pas encore générés ; sinon lignes [{ start, end, words }]

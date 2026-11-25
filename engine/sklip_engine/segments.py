@@ -14,6 +14,8 @@ Chaque clip reçoit la mise en page de son passage :
 from __future__ import annotations
 
 HUD_GAP = 90.0   # s sans bandeau de score avant de considérer qu'on n'est plus sur Valorant
+FULL_MIN_H = 0.5  # « Cam en grand » seulement si la webcam fait au moins la moitié de la hauteur de l'image :
+                  # une petite webcam (≈ 430 × 240) agrandie en plein écran vertical serait toute floue.
 
 
 def is_valorant(game: str | None) -> bool:
@@ -67,14 +69,22 @@ def in_scene(moments: list, kind: str, segments: list[dict] | None, hud: list[di
     return [m for m in moments if scene_type(segment_at(segments or [], m.t), segment_at(hud, m.t)) == kind]
 
 
-def assign_layouts(clips: list[dict], segments: list[dict] | None, hud: list[dict]) -> None:
-    """Met la mise en page et la webcam de son passage sur chaque clip (dictionnaires de select_clips)."""
+def big_cam(cam: dict | None) -> bool:
+    return bool(cam) and float(cam.get("h", 0)) >= FULL_MIN_H
+
+
+def assign_layouts(clips: list[dict], segments: list[dict] | None, hud: list[dict], default_cam: dict | None = None) -> None:
+    """Met la mise en page et la webcam de son passage sur chaque clip (dictionnaires de select_clips).
+    Hors jeu : « Cam en grand » si la webcam est assez grande (ou inconnue : recadrage de toute l'image),
+    sinon webcam en haut comme en jeu."""
     for c in clips:
         mid = (c["start"] + c["end"]) / 2
         seg = segment_at(segments or [], mid)
         kind = scene_type(seg, segment_at(hud, mid))
         cam = seg.get("cam") if seg else None
-        c["layout"] = "cam_top" if kind == "jeu" else "cam_full"
+        shown = cam or default_cam
+        full = kind != "jeu" and (not shown or big_cam(shown))
+        c["layout"] = "cam_full" if full else "cam_top"
         if cam:
             c["cam"] = cam
         c["scene"] = (seg.get("scene") if seg and seg.get("scene") else ("Jeu" if kind == "jeu" else "Hors jeu"))

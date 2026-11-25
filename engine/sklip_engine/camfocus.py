@@ -73,17 +73,29 @@ def _probe_size(video: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def add_focus(video: str, clips: list[dict], default_cam: dict | None = None) -> None:
-    """Met `focus` (centre du visage dans la webcam) sur les clips « Cam en grand »."""
+def clip_focus(video: str, cam: dict, start: float, end: float, size=None) -> dict | None:
+    """Centre du visage {x, y} dans la webcam pendant [start, end], ou None."""
+    try:
+        f = focus_from_frames(cam_frames(video, cam, start, end, size=size))
+    except Exception:
+        f = None
+    return {"x": f[0], "y": f[1]} if f else None
+
+
+def add_focus(video: str, clips: list[dict], default_cam: dict | None = None, cache: dict | None = None) -> None:
+    """Met `focus` (centre du visage dans la webcam, ou None) sur les clips « Cam en grand ».
+    `cache` : partagé entre les thèmes, un même clip n'est regardé qu'une fois."""
+    cache = {} if cache is None else cache
     size = None
     for c in clips:
         cam = c.get("cam") or default_cam
         if c.get("layout") != "cam_full" or not cam:
             continue
-        try:
-            size = size or _probe_size(video)
-            f = focus_from_frames(cam_frames(video, cam, c["start"], c["end"], size=size))
-        except Exception:
-            f = None
-        if f:
-            c["focus"] = {"x": f[0], "y": f[1]}
+        key = (round(c["start"], 2), round(c["end"], 2), tuple(round(float(cam[k]), 4) for k in "xywh"))
+        if key not in cache:
+            try:
+                size = size or _probe_size(video)
+            except Exception:
+                size = None
+            cache[key] = clip_focus(video, cam, c["start"], c["end"], size) if size else None
+        c["focus"] = cache[key]

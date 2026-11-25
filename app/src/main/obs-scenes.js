@@ -108,7 +108,7 @@ function overlaysOnZones(items) {
   for (const it of items.slice(gameAt + 1)) {
     if (CAM_KINDS.has(it.kind) || GAME_KINDS.has(it.kind) || area(it.n) >= HUGE) continue;
     const zones = Object.entries(READ_ZONES).filter(([, z]) => overlap(it.n, z) >= OVERLAP * area(z)).map(([id]) => id);
-    if (zones.length) out.push({ name: it.name, zones });
+    if (zones.length) out.push({ name: it.name, zones, rect: it.n });
   }
   return out;
 }
@@ -144,7 +144,7 @@ async function readCam(obs, chosen = {}) {
   const [{ currentProgramSceneName: scene }, { baseW, baseH }] = await Promise.all([
     obs.request('GetCurrentProgramScene'), canvas(obs)]);
   const info = await sceneInfo(lister(obs), scene, baseW, baseH);
-  return { scene, cam: info.cam, full: info.full, type: chosen[scene] || info.guess, guess: info.guess };
+  return { scene, cam: info.cam, full: info.full, type: chosen[scene] || info.guess, guess: info.guess, overlays: info.overlays };
 }
 
 /** Toutes les scènes d'OBS avec leur type deviné (pour l'assistant et les réglages). */

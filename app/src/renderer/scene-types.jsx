@@ -13,11 +13,13 @@ const ICON = { jeu: 'kill', discussion: 'chat', pause: 'record' };
 // Zones lues par Sklip dans l'image du jeu (mêmes noms que READ_ZONES dans obs-scenes.js).
 const ZONES = { score: 'le score en haut', kill: 'la bannière des kills en bas au centre', spectate: "l'icône de spectateur en bas à gauche" };
 
-function Mini({ cam, type }) {
+function Mini({ cam, type, overlays = [] }) {
+  const box = (r) => ({ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
   return (
     <div className={'sc-mini t-' + type}>
       {type === 'jeu' && <span className="sc-game" />}
-      {cam && <span className="sc-cam" style={{ left: `${cam.x * 100}%`, top: `${cam.y * 100}%`, width: `${cam.w * 100}%`, height: `${cam.h * 100}%` }} />}
+      {cam && <span className="sc-cam" style={box(cam)} />}
+      {type === 'jeu' && overlays.filter((o) => o.rect).map((o) => <span key={o.name} className="sc-ov" title={o.name} style={box(o.rect)} />)}
     </div>
   );
 }
@@ -41,7 +43,7 @@ export function SceneTypes({ settings, set }) {
     <div className="sc-list">
       {scenes.map((s) => (
         <div key={s.name} className="sc-row">
-          <Mini cam={s.cam} type={s.type} />
+          <Mini cam={s.cam} type={s.type} overlays={s.overlays} />
           <div className="sc-name">
             <b>{s.name}</b>
             <div className="note">{s.chosen ? 'Choisi par toi' : 'Deviné par Sklip'}{s.cam ? '' : ' · pas de webcam dans cette scène'}</div>

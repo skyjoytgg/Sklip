@@ -16,7 +16,7 @@ const { LiveAnalyzer } = require('./live-analysis');
 const { FriendService, PRESENCE_EVERY } = require('./friends');
 const { LiveJournal, captureEvent } = require('./live-journal');
 const lives = require('./lives');
-const { readCam, readScenes } = require('./obs-scenes');
+const { readCam, readScenes, READ_ZONES } = require('./obs-scenes');
 const { buildSegments, sameCam } = require('./segments');
 
 let win = null;
@@ -34,6 +34,7 @@ let friendService = null; // amis de confiance (réactions sur aces / clutchs)
 let sharedChatTimer = null; // pendant l'enregistrement : relevé du chat partagé Twitch toutes les minutes
 let log = { info() {}, warn() {}, error() {} };   // remplacé par le vrai journal au démarrage
 let journal = null;        // journal du live (frise de l'accueil)
+let overlayWarned = new Set(); // overlays gênants déjà signalés dans le journal de ce live
 let sceneLog = [];         // pendant l'enregistrement : scène OBS + webcam [{ at, scene, cam, full }]
 let gameLog = [];          // pendant l'enregistrement : catégorie Twitch [{ at, game }]
 const jadd = (...a) => journal && journal.add(...a);
@@ -232,6 +233,15 @@ async function trackScene() {
   if (!obs || !obs.identified || !obsTimes.recordStartedAt || obsTimes.recordStoppedAt) return;
   try {
     const r = await readCam(obs, settings.get().sceneTypes || {});
+    if (r.type === 'jeu') {
+      for (const o of r.overlays || []) {
+        const key = `${r.scene}|${o.name}`;
+        if (overlayWarned.has(key)) continue;
+        overlayWarned.add(key);
+        jadd('scene', `Overlay gênant : « ${o.name} »`, { level: 'warn',
+          detail: `il cache ${o.zones.map((z) => READ_ZONES[z].label).join(' et ')} : des moments peuvent être ratés` });
+      }
+    }
     const last = sceneLog[sceneLog.length - 1];
     if (last && last.scene === r.scene && last.type === r.type && sameCam(last.cam, r.cam)) return;
     sceneLog.push({ at: Date.now(), ...r });
@@ -349,6 +359,7 @@ function startObs() {
     if (journal) journal.start(e.at);
     sceneLog = [];
     gameLog = [];
+    overlayWarned = new Set();
     startSharedChatWatch();
     startAudioCapture();
     if (settings.get().analysisMode === 'live' && obs) {

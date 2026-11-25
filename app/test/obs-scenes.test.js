@@ -45,12 +45,12 @@ function fakeObs(current) {
 
 test('webcam demandée à OBS, scène par scène (lecture seule) + type de scène deviné ou choisi', async () => {
   const v = await readCam(fakeObs('Valorant'));
-  assert.deepStrictEqual(v, { scene: 'Valorant', cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, full: false, type: 'jeu', guess: 'jeu' });
+  assert.deepStrictEqual(v, { scene: 'Valorant', cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, full: false, type: 'jeu', guess: 'jeu', overlays: [] });
   const jc = fakeObs('Just Chatting');
   const j = await readCam(jc);
-  assert.deepStrictEqual(j, { scene: 'Just Chatting', cam: { x: 0.125, y: 0, w: 0.75, h: 1 }, full: true, type: 'discussion', guess: 'discussion' });
+  assert.deepStrictEqual(j, { scene: 'Just Chatting', cam: { x: 0.125, y: 0, w: 0.75, h: 1 }, full: true, type: 'discussion', guess: 'discussion', overlays: [] });
   assert.ok(jc.calls.every((c) => c.startsWith('Get')));
-  assert.deepStrictEqual(await readCam(fakeObs('Pause')), { scene: 'Pause', cam: null, full: false, type: 'pause', guess: 'pause' });
+  assert.deepStrictEqual(await readCam(fakeObs('Pause')), { scene: 'Pause', cam: null, full: false, type: 'pause', guess: 'pause', overlays: [] });
   // Le choix du streamer passe avant la devinette.
   assert.strictEqual((await readCam(fakeObs('Valorant'), { Valorant: 'discussion' })).type, 'discussion');
 });
@@ -78,6 +78,7 @@ test('overlay posé sur une zone lue par Sklip (score, kills, spectateur) : sign
     { kind: 'browser_source', name: 'Alertes', n: { x: 0, y: 0, w: 1, h: 1 } },              // plein écran transparent
     { kind: 'text_gdiplus_v3', name: 'Barre', n: { x: 0, y: 0, w: 1, h: 0.05 } },            // bandeau en haut
   ];
-  assert.deepStrictEqual(overlaysOnZones(items), [{ name: 'Logo', zones: ['kill'] }, { name: 'Barre', zones: ['score'] }]);
+  assert.deepStrictEqual(overlaysOnZones(items).map(({ name, zones }) => ({ name, zones })), [{ name: 'Logo', zones: ['kill'] }, { name: 'Barre', zones: ['score'] }]);
+  assert.deepStrictEqual(overlaysOnZones(items)[0].rect, { x: 0.45, y: 0.75, w: 0.1, h: 0.1 });   // dessiné dans l'aperçu de la scène
   assert.deepStrictEqual(overlaysOnZones(items.filter((it) => it !== game)), []);   // pas de jeu dans la scène
 });

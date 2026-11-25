@@ -45,7 +45,7 @@ const mock = (() => {
     onJournal: noop,
     obsScenes: async () => [
       { name: 'Just Chatting', guess: 'discussion', type: settings.sceneTypes?.['Just Chatting'] || 'discussion', chosen: !!settings.sceneTypes?.['Just Chatting'], cam: { x: 0.125, y: 0, w: 0.75, h: 1 }, full: true },
-      { name: 'Valorant', guess: 'jeu', type: settings.sceneTypes?.Valorant || 'jeu', chosen: !!settings.sceneTypes?.Valorant, cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222 }, full: false, overlays: [{ name: 'Rang actuel', zones: ['score'] }] },
+      { name: 'Valorant', guess: 'jeu', type: settings.sceneTypes?.Valorant || 'jeu', chosen: !!settings.sceneTypes?.Valorant, cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222 }, full: false, overlays: [{ name: 'Logo', zones: ['kill'], rect: { x: 0.448, y: 0.759, w: 0.104, h: 0.111 } }] },
       { name: 'Je reviens', guess: 'pause', type: settings.sceneTypes?.['Je reviens'] || 'pause', chosen: !!settings.sceneTypes?.['Je reviens'], cam: null, full: false },
       { name: 'Valo + grande cam', guess: 'discussion', type: settings.sceneTypes?.['Valo + grande cam'] || 'discussion', chosen: !!settings.sceneTypes?.['Valo + grande cam'], cam: { x: 0.55, y: 0.3, w: 0.45, h: 0.7 }, full: false },
     ],

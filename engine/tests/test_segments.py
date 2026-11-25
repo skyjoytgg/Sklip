@@ -37,6 +37,14 @@ def test_mise_en_page_selon_le_passage():
     vod = [{"start": 100, "end": 120}, {"start": 5500, "end": 5520}]
     assign_layouts(vod, None, hud)
     assert [c["layout"] for c in vod] == ["cam_top", "cam_full"] and "cam" not in vod[0]
+    # VOD avec la petite webcam de jeu : hors jeu, pas de « Cam en grand » (serait floue), webcam en haut.
+    small = [{"start": 100, "end": 120}, {"start": 5500, "end": 5520}]
+    assign_layouts(small, None, hud, {"x": 0, "y": 0, "w": 0.22, "h": 0.3})
+    assert [c["layout"] for c in small] == ["cam_top", "cam_top"]
+    # Scène de discussion OBS avec une petite webcam : pareil.
+    tiny = [{"start": 100, "end": 120}]
+    assign_layouts(tiny, [{"start": 0, "end": 900, "type": "discussion", "cam": cam_val}], hud)
+    assert tiny[0]["layout"] == "cam_top"
     assert is_valorant("VALORANT") and not is_valorant("Just Chatting") and not is_valorant(None)
 
 

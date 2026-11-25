@@ -500,3 +500,15 @@ Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de 
   onglet Lives (miniature, stats, frise bleu/rouge/bleu) OK.
 - Reste à vérifier pendant un vrai live : vrai OBS de Sky, vraie catégorie Twitch, cadrage visage sur une vraie
   scène Just Chatting.
+
+### 14 bis. Même jour : corrections et finitions (Sky : « Fait tout maintenant »)
+- **Bug : image floue sur une VOD** : hors jeu, une VOD (sans OBS) passait en « Cam en grand » avec la petite webcam
+  de jeu (≈ 430 × 240 px) agrandie en plein écran vertical. Maintenant « Cam en grand » seulement si la webcam fait au
+  moins la moitié de la hauteur de l'image (`segments.FULL_MIN_H`), sinon webcam en haut + image.
+- **Cadrage visage depuis l'éditeur** : passer un clip en « Cam en grand » demande au moteur où est le visage
+  (commande `focus`) ; aperçu et export centrés dessus. `focus` : absent = pas encore cherché, null = pas trouvé.
+- **Analyse** : un clip présent dans deux thèmes n'est regardé qu'une fois pour le cadrage (cache).
+- **Overlay gênant** dessiné en jaune dans la mini-scène des Réglages, et noté dans le **journal du live** (en
+  orange, une fois par scène et par overlay) s'il apparaît pendant le live.
+- Vérifié dans la vraie appli avec le faux OBS (live de 90 s) : alerte dans le journal au passage sur Valorant,
+  overlay dessiné, « Cam en grand » choisi dans l'éditeur → visage centré, cadrage enregistré dans le montage.

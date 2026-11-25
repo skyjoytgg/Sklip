@@ -343,6 +343,22 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
   const cam = project.cam ? (project.cam.enabled === false ? null : project.cam) : session.cam;
   const camSource = project.cam ? (project.cam.enabled === false ? 'none' : project.cam.auto ? 'auto' : 'project') : session.camSource;
 
+  // « Cam en grand » choisi dans l'éditeur : on demande au moteur où est le visage (une fois par clip).
+  // focus : undefined = pas encore cherché, null = rien trouvé (centre de la webcam).
+  const focusPending = useRef(new Set());
+  useEffect(() => {
+    if (!session.stream.video || !window.sklip) return;
+    for (const c of project.clips) {
+      const camC = M.clipCam(c, cam, ['manual', 'project'].includes(camSource));
+      if (c.layout !== 'cam_full' || c.focus !== undefined || !camC || focusPending.current.has(c.id)) continue;
+      focusPending.current.add(c.id);
+      api.engine('focus', { video: session.stream.video, cam: camC, start: c.start, end: c.end })
+        .then((r) => setProject((p) => M.updateClip(p, c.id, { focus: (r && r.focus) || null })))
+        .catch(() => setProject((p) => M.updateClip(p, c.id, { focus: null })))
+        .finally(() => focusPending.current.delete(c.id));
+    }
+  }, [project.clips.map((c) => `${c.id}:${c.layout}:${c.focus === undefined}`).join(), cam]);
+
   const doExport = async () => {
     setExportState({ fraction: 0, message: 'Préparation…' });
     const name = `sklip_${session.theme}_${project.fmt}${project.bpm ? `_${Math.round(project.bpm)}bpm` : ''}.mp4`;

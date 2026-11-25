@@ -150,12 +150,13 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
              for th in themes}
     # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
     for th in clips:
-        assign_layouts(clips[th], segments, hud_segs)
+        assign_layouts(clips[th], segments, hud_segs, cam)
     # « Cam en grand » : centrée sur le visage du streamer (ce qui bouge dans la webcam).
     from .camfocus import add_focus
     report(0.98, "Cadrage des clips webcam")
+    focus_cache: dict = {}                         # un clip présent dans deux thèmes n'est regardé qu'une fois
     for th in clips:
-        add_focus(video, clips[th], cam)
+        add_focus(video, clips[th], cam, focus_cache)
     if segments:
         for s in segments:
             if not s.get("game"):
