@@ -86,6 +86,7 @@ class MontageSpec:
     fps: int = 60
     music_file: str | None = None                  # musique de la bibliothèque (optionnelle)
     music_start: float = 0.0                       # premier temps de la musique
+    music_volume: float = 0.8                      # volume de cette musique ajoutée
     encoder: str | None = None
     texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
     subtitles: bool = False                         # sous-titres auto mot par mot (français)
@@ -172,6 +173,29 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
     return cmd
 
 
+def live_music_ranges(spec: MontageSpec) -> list[tuple[float, float]]:
+    """Passages du montage (en secondes, dans la vidéo finale) où l'on entend la musique du live."""
+    if "music" not in spec.tracks:
+        return []   # sans piste musique séparée, on ne sait pas isoler la musique du live
+    out, t = [], 0.0
+    for c in spec.clips:
+        d = c.end - c.start
+        if {**DEFAULT_VOLUMES, **spec.volumes, **c.volumes}.get("music", 0) > 0:
+            out.append((round(t, 3), round(t + d, 3)))
+        t += d
+    return out
+
+
+def added_music_volume(spec: MontageSpec) -> str:
+    """Filtre de volume de la musique ajoutée : coupée pendant les clips qui gardent la musique du live,
+    pour ne pas entendre deux chansons en même temps."""
+    ranges = live_music_ranges(spec)
+    if not ranges:
+        return f"volume={spec.music_volume:.3f}"
+    cond = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in ranges)
+    return f"volume='if({cond},0,{spec.music_volume:.3f})':eval=frame"
+
+
 def render_montage(spec: MontageSpec, progress=None) -> str:
     """Rend chaque clip puis les assemble. `progress(fraction, message)` est appelé au fil du rendu."""
     if not spec.clips:
@@ -199,10 +223,9 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
                         "-c", "copy", "-movflags", "+faststart", joined], check=True, capture_output=True)
         if spec.music_file:
-            mv = {**DEFAULT_VOLUMES, **spec.volumes}.get("music", 0.0) or 0.8
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-ss", f"{spec.music_start:.3f}",
                             "-i", spec.music_file, "-filter_complex",
-                            f"[1:a]volume={mv:.3f}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]",
+                            f"[1:a]{added_music_volume(spec)}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]",
                             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                             "-movflags", "+faststart", spec.output], check=True, capture_output=True)
         if progress:

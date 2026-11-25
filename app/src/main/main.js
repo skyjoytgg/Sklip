@@ -8,6 +8,7 @@ const { runEngine } = require('./engine-bridge');
 const { Settings } = require('./settings');
 const { TwitchAuth, TwitchLive } = require('./twitch');
 const tm = require('./twitch-moments');
+const perf = require('./perf');
 
 let win = null;
 let obs = null;
@@ -128,6 +129,15 @@ app.whenReady().then(() => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'],
       filters: [{ name: 'Vidéos', extensions: ['mkv', 'mp4', 'mov', 'flv'] }] });
     return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('system:test', async () => {
+    send('engine:progress', { command: 'benchmark', fraction: 0, message: 'Lecture des infos du PC' });
+    const info = await perf.systemInfo();
+    const bench = await runEngine(engineLocation(), 'benchmark', {},
+      (p) => send('engine:progress', { command: 'benchmark', ...p }));
+    const result = { ...info, ...bench, ...perf.verdict({ ...info, ...bench }), at: new Date().toISOString() };
+    settings.update({ pcTest: result });
+    return result;
   });
   ipcMain.handle('shell:openFolder', (_e, p) => shell.openPath(p));
 

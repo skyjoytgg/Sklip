@@ -221,3 +221,41 @@ Points jamais exécutés pour de vrai (à vérifier en premier sur le PC de Sky)
 3. Vérifier un vrai clutch de Sky dès qu'il y en a un ; valider sur une VOD d'un pote (autre résolution).
 4. Tester le vrai OBS et le vrai Twitch (besoin de Sky devant le PC).
 5. Capture audio WASAPI, rires/cris, marqueurs, Stream Deck.
+
+## 7. Claude Code — 25/11/2026 : tuto de départ et test du PC
+
+Demande de Sky : un tuto au premier lancement (réglages + apprendre le montage, avec une option pour le passer)
+et une analyse du PC pour savoir si faire les clips pendant le jeu va laguer ; le streamer choisit ensuite.
+
+Choix de Sky : bulles guidées dans le vrai éditeur ; test lancé avant le stream ou une partie ;
+réglages du départ = OBS + Twitch, webcam, thèmes et formats, pistes audio.
+
+- **Assistant de départ** (`app/src/renderer/onboarding.jsx`) : s'affiche tant que `firstRunDone` est faux.
+  7 étapes : bienvenue → OBS (aide pour activer obs-websocket) + Twitch → position et taille de la webcam
+  (4 coins ou « pas de webcam », réglage `cam`) → thèmes, formats, durée → son (capture séparée, Discord oui,
+  musique non par défaut) → test du PC + choix du mode d'analyse → fin. « Passer le tuto » à chaque étape
+  (passe aussi les bulles de l'éditeur).
+- **Bulles guidées** (`app/src/renderer/tour.jsx`) : à la première ouverture de « Montage » (`editorTourDone`),
+  7 bulles qui éclairent les zones de l'éditeur (attributs `data-tour`) : moments, timeline, aperçu, clip,
+  mixeur, format/durée, export. Échap ou « Passer le tuto » pour quitter.
+- **Test du PC** : moteur `benchmark` (`engine/sklip_engine/benchmark.py`) fabrique 15 s de vidéo 1080p60
+  bruitée et mesure la vitesse d'analyse avec un seul processus (celui d'un live) + l'encodeur de la carte
+  graphique. L'appli (`app/src/main/perf.js`) ajoute processeur, RAM, carte graphique, charge actuelle et
+  détecte si Valorant / OBS sont ouverts (sinon elle suppose 55 % de charge pour le jeu). Verdict
+  `live` / `limite` / `apres`, avec les raisons ; le mode conseillé est marqué « Conseillé » mais c'est
+  le streamer qui choisit. Résultat gardé dans `pcTest`.
+  Sur le PC de Sky (Ryzen 7 5800X, 32 Go, RX 6600 AMF) : analyse ~11–14× le temps réel (une vraie VOD : ~10×),
+  verdict « pendant le live OK ».
+- **Réglages** : bloc « Test du PC » (refaire le test) et bouton « Relancer le tuto ».
+- Tests : 51 côté moteur (dont le test du PC), 30 côté appli (dont 5 pour le verdict), tous OK.
+
+### Garder la musique du live sur un clip (25/11/2026)
+Demande de Sky : pouvoir garder, clip par clip, la chanson qui passait pendant le live (ex. quand il chante dessus).
+- Éditeur → « Clip sélectionné » : case **🎵 Garder la musique du live** (`setLiveMusic` / `hasLiveMusic` dans
+  `editor-model.js`) ; la timeline affiche 🎵 sur ces clips. Par défaut la musique reste coupée (droits d'auteur).
+- Si une musique est ajoutée sur tout le montage (`music_file`), elle est coupée pendant ces clips pour ne pas
+  entendre deux chansons (`live_music_ranges` / `added_music_volume` dans `render.py`). Son volume a maintenant
+  son propre réglage `music_volume` (avant, il partageait celui de la musique du live).
+- Sans piste musique séparée (VOD, Sklip lancé en retard), la musique est déjà dans le son du stream :
+  l'éditeur le signale.
+- Test de rendu réel : la musique (900 Hz) s'entend sur le clip gardé et disparaît sur le suivant.

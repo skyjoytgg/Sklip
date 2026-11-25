@@ -3,18 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
 import { Editor } from './editor.jsx';
 import { DEMO_SESSION } from './demo-data.js';
-
-const THEMES = [
-  { id: 'kills', label: 'Kills / Aces / Clutchs' },
-  { id: 'drole', label: 'Moments drôles' },
-  { id: 'communaute', label: 'Moments communauté' },
-];
-
-const MODES = {
-  end_of_stream: 'Auto à la fin du stream',
-  live: 'Pendant le stream (PC puissant)',
-  manual: 'Manuel',
-};
+import { THEMES, MODES } from './constants.js';
+import { TwitchBlock } from './twitch-block.jsx';
+import { Onboarding, PcTest } from './onboarding.jsx';
 
 function Sidebar({ page, setPage, obs }) {
   const items = [['accueil', 'Accueil'], ['montage', 'Montage'], ['historique', 'Historique'], ['reglages', 'Réglages']];
@@ -101,43 +92,19 @@ function Historique() {
   );
 }
 
-function TwitchBlock() {
-  const [st, setSt] = useState({ connected: false });
-  const [code, setCode] = useState(null);
-  useEffect(() => {
-    api.twitchStatus().then(setSt);
-    return api.onTwitchStatus((s) => { setSt(s); setCode(null); });
-  }, []);
-  if (st.connected) {
-    return (
-      <div className="twitch on">
-        <div><b>Connecté à Twitch</b> en tant que {st.user?.name}</div>
-        <button className="btn ghost sm" onClick={async () => setSt(await api.twitchLogout())}>Se déconnecter</button>
-      </div>);
-  }
-  if (code) {
-    return (
-      <div className="twitch">
-        <div>Une page Twitch s'est ouverte. Vérifie que ce code s'affiche, puis clique sur <b>Activer</b> :
-          <div className="code">{code.userCode}</div>
-          <span className="note">En attente de ta validation…</span></div>
-        <button className="btn ghost sm" onClick={() => { api.twitchCancelLogin(); setCode(null); }}>Annuler</button>
-      </div>);
-  }
-  return (
-    <div className="twitch">
-      <div><b>Twitch</b><div className="note">Pour les raids, les viewers, le chat et les clips de tes viewers.</div>
-        {st.error && <div className="bad">{st.error}</div>}</div>
-      <button className="btn" onClick={async () => setCode(await api.twitchLogin())}>Se connecter avec Twitch</button>
-    </div>);
-}
-
 function Reglages({ settings, setSettings }) {
   const set = async (patch) => setSettings(await api.updateSettings(patch));
   return (
     <>
       <h1>Réglages</h1>
       <TwitchBlock />
+      <h3>Test du PC</h3>
+      <p className="note">Mesure si ton PC peut faire les clips pendant le live sans laguer. Le mieux : avec OBS et Valorant ouverts.</p>
+      <PcTest settings={settings} setSettings={setSettings} compact />
+      <div className="field"><label>Tutoriel</label>
+        <div className="row">
+          <button className="btn ghost sm" onClick={() => set({ firstRunDone: false, editorTourDone: false })}>Relancer le tuto</button>
+          <span className="note">Réglages du début + bulles guidées dans l'éditeur.</span></div></div>
       <div className="banner">Sklip ne modifie jamais OBS : ni scènes, ni sources, ni pistes, ni format d'enregistrement.</div>
       <div className="field"><label>Adresse obs-websocket</label>
         <input defaultValue={settings.obs.url} onBlur={(e) => set({ obs: { url: e.target.value } })} /></div>
@@ -182,11 +149,16 @@ function App() {
     return () => offs.forEach((off) => off && off());
   }, []);
   if (!settings) return null;
+  if (!settings.firstRunDone) {
+    return <Onboarding settings={settings} setSettings={setSettings} obs={obs} onDone={() => setPage('accueil')} />;
+  }
   return (
     <div className="app">
       <Sidebar page={page} setPage={setPage} obs={obs} />
       <main className={page === 'montage' ? 'full' : ''}>
-        {page === 'montage' && <Editor session={DEMO_SESSION} onBack={() => setPage('accueil')} />}
+        {page === 'montage' && <Editor session={DEMO_SESSION} onBack={() => setPage('accueil')}
+          showTour={!settings.editorTourDone}
+          onTourDone={async () => setSettings(await api.updateSettings({ editorTourDone: true }))} />}
         {page === 'accueil' && <Accueil settings={settings} setSettings={setSettings} obs={obs} />}
         {page === 'historique' && <Historique />}
         {page === 'reglages' && <Reglages settings={settings} setSettings={setSettings} />}

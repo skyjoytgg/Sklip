@@ -39,7 +39,8 @@ def cmd_render(p):
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
         volumes={**MontageSpec.__dataclass_fields__["volumes"].default_factory(), **p.get("volumes", {})},
         texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")),
-        music_file=p.get("music_file"), music_start=p.get("music_start", 0.0), encoder=p.get("encoder"),
+        music_file=p.get("music_file"), music_start=p.get("music_start", 0.0),
+        music_volume=p.get("music_volume", 0.8), encoder=p.get("encoder"),
     )
     out = render_montage(spec, progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
     return {"output": out}
@@ -77,6 +78,12 @@ def cmd_detect_kills(p):
             "rounds": len(rounds), "games": len({r.game for r in rounds})}
 
 
+def cmd_benchmark(p):
+    from .benchmark import run_benchmark
+    return run_benchmark(p.get("seconds", 15.0),
+                         progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+
+
 def cmd_stream_folder(p):
     folder = create_stream_folder(p["root"], p["title"])
     write_stats_html(folder["path"], p["title"], p.get("stats", {}), p.get("moments", []))
@@ -93,6 +100,7 @@ COMMANDS = {
     "bpm": lambda p: detect_bpm_file(p["path"]),
     "stream-folder": cmd_stream_folder,
     "detect-kills": cmd_detect_kills,
+    "benchmark": cmd_benchmark,
 }
 
 

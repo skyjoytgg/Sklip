@@ -74,3 +74,21 @@ test('format du temps', () => {
   assert.strictEqual(m.fmtTime(65), '1:05');
   assert.strictEqual(m.fmtTime(3725), '1:02:05');
 });
+
+test('garder la musique du live sur un seul clip', () => {
+  let p = m.createProject({ clips: [{ start: 10, end: 20 }, { start: 40, end: 50 }], streamDuration: 100 });
+  const [a, b] = p.clips;
+  assert.equal(m.hasLiveMusic(p, a), false);                 // musique coupée par défaut
+  p = m.setLiveMusic(p, a.id, true);
+  assert.equal(m.hasLiveMusic(p, p.clips[0]), true);
+  assert.equal(m.hasLiveMusic(p, p.clips[1]), false);
+  assert.equal(m.toRenderSpec(p, { video: 'v', output: 'o' }).clips[0].volumes.music, 1);
+  p = m.setLiveMusic(p, a.id, false);
+  assert.equal(m.hasLiveMusic(p, p.clips[0]), false);
+  assert.equal('music' in p.clips[0].volumes, false);        // retour au réglage global
+  // Musique montée dans le mixeur global : décocher la coupe pour ce clip seulement.
+  p = m.setGlobalVolume(p, 'music', 0.6);
+  p = m.setLiveMusic(p, b.id, false);
+  assert.equal(m.hasLiveMusic(p, p.clips[1]), false);
+  assert.equal(m.hasLiveMusic(p, p.clips[0]), true);
+});

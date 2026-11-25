@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as M from './editor-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
+import { Tour, EDITOR_TOUR } from './tour.jsx';
 
 const info = (t) => MOMENT_INFO[t] || { label: t, color: '#8a8a99' };
 const mainMoment = (clip) => [...(clip.moments || [])].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
@@ -141,7 +142,7 @@ function Timeline({ project, setProject, selected, setSelected, player }) {
     ? (drag.insert < project.clips.length ? offsets[drag.insert] : total) * pps : null;
 
   return (
-    <div className="timeline-wrap">
+    <div className="timeline-wrap" data-tour="timeline">
       <div className="tl-tools">
         <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner</span>
         <div className="row">
@@ -167,7 +168,7 @@ function Timeline({ project, setProject, selected, setSelected, player }) {
                   onPointerDown={(e) => onClipDown(e, c)}>
                   <div className="h l" onPointerDown={(e) => onTrimDown(e, c, 'start')} />
                   <div className="tl-label">
-                    <b>{mm ? info(mm.type).label : 'Clip'}</b>
+                    <b>{mm ? info(mm.type).label : 'Clip'}{M.hasLiveMusic(project, c) && <span title="Musique du live gardée"> 🎵</span>}</b>
                     <span>{(c.end - c.start).toFixed(1)} s</span>
                   </div>
                   <div className="h r" onPointerDown={(e) => onTrimDown(e, c, 'end')} />
@@ -199,7 +200,7 @@ function Fader({ label, value, onChange, inherited }) {
 }
 
 // ---------- Éditeur ----------
-export function Editor({ session, onBack }) {
+export function Editor({ session, onBack, showTour, onTourDone }) {
   const [project, setProject] = useState(() => initProject(session));
   const [selected, setSelected] = useState(project.clips[0]?.id || null);
   const [exportState, setExportState] = useState(null);
@@ -246,7 +247,7 @@ export function Editor({ session, onBack }) {
           </div>
         </div>
         <div className="row">
-          <div className="seg">
+          <div className="row" data-tour="format"><div className="seg">
             {['9x16', '16x9'].map((f) => (
               <button key={f} className={project.fmt === f ? 'on' : ''} onClick={() => setProject({ ...project, fmt: f })}>
                 {f.replace('x', ':')}</button>))}
@@ -255,13 +256,13 @@ export function Editor({ session, onBack }) {
             <input type="number" min="60" max="200" placeholder="—" value={project.bpm || ''} style={{ width: 70 }}
               onChange={(e) => setProject({ ...project, bpm: e.target.value ? Number(e.target.value) : null })} />
           </label>
-          <div className={'dur' + (total > 60 ? ' over' : '')}>{total.toFixed(1)} s</div>
-          <button className="btn" onClick={doExport} disabled={!project.clips.length}>Exporter</button>
+          <div className={'dur' + (total > 60 ? ' over' : '')}>{total.toFixed(1)} s</div></div>
+          <button className="btn" data-tour="export" onClick={doExport} disabled={!project.clips.length}>Exporter</button>
         </div>
       </header>
 
       <div className="ed-body">
-        <section className="panel moments">
+        <section className="panel moments" data-tour="moments">
           <h3>Moments détectés</h3>
           <div className="list">
             {moments.map((m, i) => {
@@ -283,7 +284,7 @@ export function Editor({ session, onBack }) {
           </div>
         </section>
 
-        <section className="stage">
+        <section className="stage" data-tour="preview">
           <Preview project={project} player={player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} />
           <div className="transport">
             <button className="btn sm" onClick={() => player.setPlaying(!player.playing)}>{player.playing ? '⏸ Pause' : '▶ Lire'}</button>
@@ -291,7 +292,7 @@ export function Editor({ session, onBack }) {
           </div>
         </section>
 
-        <section className="panel props">
+        <section className="panel props" data-tour="props">
           {clip ? (
             <>
               <h3>Clip sélectionné</h3>
@@ -307,6 +308,17 @@ export function Editor({ session, onBack }) {
                         onClick={() => setProject(M.updateClip(project, clip.id, { layout: k }))}>{v}</button>))}
                   </div>
                 </>)}
+              <label className={'livemusic' + (M.hasLiveMusic(project, clip) ? ' on' : '')}>
+                <input type="checkbox" checked={M.hasLiveMusic(project, clip)}
+                  onChange={(e) => setProject(M.setLiveMusic(project, clip.id, e.target.checked))} />
+                <div>
+                  <b>🎵 Garder la musique du live</b>
+                  <div className="note">On entend la chanson qui passait pendant cet extrait (pratique si tu chantes dessus).
+                    {session.tracks && !session.tracks.music
+                      ? " Ici, la musique est déjà mélangée au son du stream : elle s'entend dans tous les cas."
+                      : ' Attention : une chanson connue peut faire couper le son ou bloquer la vidéo sur TikTok / YouTube.'}</div>
+                </div>
+              </label>
               <div className="lbl">Son de ce clip</div>
               {M.TRACKS.map((tr) => (
                 <div key={tr} className="clipfader">
@@ -341,7 +353,7 @@ export function Editor({ session, onBack }) {
         </section>
       </div>
 
-      <div className="mixer">
+      <div className="mixer" data-tour="mixer">
         <div className="mixer-title">Mixeur<span className="note">tout le montage</span></div>
         {M.TRACKS.map((tr) => (
           <Fader key={tr} label={M.TRACK_LABELS[tr]} value={project.volumes[tr]}
@@ -350,6 +362,8 @@ export function Editor({ session, onBack }) {
       </div>
 
       <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player} />
+
+      {showTour && <Tour steps={EDITOR_TOUR} onDone={onTourDone} />}
 
       {exportState && (
         <div className="toast">

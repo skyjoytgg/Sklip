@@ -121,6 +121,25 @@ function effectiveVolume(p, clip, track) {
   return clip.volumes[track] ?? p.volumes[track] ?? DEFAULT_VOLUMES[track];
 }
 
+/** Le clip garde-t-il la musique qui passait pendant le live ? */
+function hasLiveMusic(p, clip) {
+  return effectiveVolume(p, clip, 'music') > 0;
+}
+
+/**
+ * Garder (ou non) la musique du live sur ce clip, par ex. quand le streamer chante dessus.
+ * Activé : volume musique du clip à 100 %. Désactivé : on revient au réglage global (coupé par défaut).
+ */
+function setLiveMusic(p, id, on) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  const volumes = { ...c.volumes };
+  if (on) volumes.music = 1;
+  else if ((p.volumes.music ?? DEFAULT_VOLUMES.music) > 0) volumes.music = 0;
+  else delete volumes.music;
+  return updateClip(p, id, { volumes });
+}
+
 /** Paramètres envoyés au moteur (commande `render`). */
 function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart }) {
   return {
@@ -148,5 +167,5 @@ function fmtTime(s) {
 module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
-  isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, toRenderSpec, snapDuration, fmtTime,
+  isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, snapDuration, fmtTime,
 };

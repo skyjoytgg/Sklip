@@ -101,3 +101,38 @@ def test_dossier_de_stream(fake_stream, tmp_path):
 def test_slugify():
     assert slugify("Éèà ÇA marche !!") == "eea-ca-marche"
     assert slugify("🔥🔥") == "stream"
+
+
+def _energy_at(path, freq, start, dur):
+    """Énergie relative d'une fréquence dans un passage du son du fichier."""
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(dur), "-i", path, "-ac", "1",
+                          "-ar", "8000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+    f = np.fft.rfftfreq(len(x), 1 / 8000)
+    return spec[(f > freq - 15) & (f < freq + 15)].sum() / (spec.sum() + 1e-9)
+
+
+def test_garder_la_musique_du_live_sur_un_clip(fake_stream, tmp_path):
+    """Clip 1 : le streamer garde la musique du live (900 Hz). Clip 2 : musique coupée (par défaut)."""
+    out = tmp_path / "live_music.mp4"
+    render_montage(MontageSpec(video=fake_stream["video"], output=str(out), fmt="16x9", encoder="libx264",
+                               tracks=fake_stream["tracks"],
+                               clips=[RenderClip(5, 8, volumes={"music": 1.0}), RenderClip(12, 15)]))
+    assert _energy_at(str(out), 900, 0.5, 2) > 0.1
+    assert _energy_at(str(out), 900, 3.5, 2) < 0.01
+    assert _energy_at(str(out), 500, 3.5, 2) > 0.1      # le micro reste là
+
+
+def test_musique_ajoutee_coupee_pendant_la_musique_du_live(fake_stream):
+    from sklip_engine.render import added_music_volume, live_music_ranges
+    spec = MontageSpec(video="v", output="o", tracks=fake_stream["tracks"],
+                       clips=[RenderClip(0, 4), RenderClip(10, 13, volumes={"music": 1.0}), RenderClip(20, 22)])
+    assert live_music_ranges(spec) == [(4.0, 7.0)]
+    assert added_music_volume(spec) == "volume='if(between(t,4.000,7.000),0,0.800)':eval=frame"
+    spec.clips[1].volumes = {}
+    assert added_music_volume(spec) == "volume=0.800"
+    spec.tracks = {}          # pas de piste musique séparée : rien à couper
+    spec.clips[1].volumes = {"music": 1.0}
+    assert live_music_ranges(spec) == []

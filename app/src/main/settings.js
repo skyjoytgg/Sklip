@@ -23,7 +23,9 @@ const DEFAULTS = {
   markerHotkey: 'F9',
   retentionDays: 7,
   libraryRoot: null,                     // par défaut : Documents/Sklip
-  firstRunDone: false,
+  firstRunDone: false,                   // assistant de départ terminé (ou passé)
+  editorTourDone: false,                 // bulles guidées de l'éditeur vues (ou passées)
+  pcTest: null,                          // dernier résultat du test du PC
 };
 
 function deepMerge(base, over) {

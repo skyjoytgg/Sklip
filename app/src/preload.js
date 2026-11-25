@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('sklip', {
   engine: (command, params) => ipcRenderer.invoke('engine:run', command, params),
   listStreams: () => ipcRenderer.invoke('streams:list'),
   openVideo: () => ipcRenderer.invoke('dialog:openVideo'),
+  testPc: () => ipcRenderer.invoke('system:test'),
   openFolder: (p) => ipcRenderer.invoke('shell:openFolder', p),
   twitchStatus: () => ipcRenderer.invoke('twitch:status'),
   twitchLogin: () => ipcRenderer.invoke('twitch:login'),
