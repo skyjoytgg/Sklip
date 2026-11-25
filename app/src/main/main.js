@@ -18,6 +18,7 @@ const { LiveJournal, captureEvent } = require('./live-journal');
 const lives = require('./lives');
 const { readCam, readScenes, READ_ZONES } = require('./obs-scenes');
 const { buildSegments, sameCam } = require('./segments');
+const precheck = require('./precheck');
 
 let win = null;
 let obs = null;
@@ -534,6 +535,31 @@ app.whenReady().then(() => {
   markerService.startHttp();
   ipcMain.handle('marker:add', () => markerService.add('appli'));
   ipcMain.handle('marker:hotkeyOk', () => !!markerService.hotkey);
+  // « Vérifier avant le live » (voir precheck.js) : tout est lu, seul le micro est essayé 2 secondes.
+  ipcMain.handle('precheck:run', async () => {
+    const rows = await precheck.runPrecheck({
+      settings: settings.get(),
+      obsConnected: !!(obs && obs.identified),
+      scenes: () => readScenes(obs, settings.get().sceneTypes || {}),
+      recordDir: async () => (await obs.request('GetRecordDirectory')).recordDirectory,
+      freeBytes: async (dir) => { const st = await fs.promises.statfs(dir); return st.bavail * st.bsize; },
+      micTest: async () => {
+        const folder = path.join(app.getPath('temp'), `sklip-micro-${Date.now()}`);
+        try {
+          const info = await engine('capture', { folder, disabled: ['game', 'discord', 'music'], max_seconds: 2 });
+          const mic = info && info.tracks && info.tracks.mic;
+          return { ok: !!(mic && mic.source && !mic.error), error: mic && mic.error };
+        } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+      },
+      running: () => new Promise((resolve) => require('node:child_process').execFile('tasklist', ['/fo', 'csv', '/nh'],
+        { windowsHide: true, maxBuffer: 8 << 20 }, (err, out) => resolve(new Set(err ? [] : out.split(/\r?\n/)
+          .map((l) => (l.split('","')[0] || '').replace(/^"/, '').toLowerCase()).filter(Boolean))))),
+      twitchConnected: !!(twitch && twitch.isConnected()),
+      hotkey: markerService.hotkey,
+      streamDeck: !!(markerService.server && markerService.server.listening),
+    });
+    return { rows, verdict: precheck.verdict(rows), at: Date.now() };
+  });
   startTwitchLive();
 
   if (app.isPackaged) {

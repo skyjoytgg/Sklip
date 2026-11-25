@@ -7,6 +7,7 @@ import { TwitchBlock } from './twitch-block.jsx';
 import { Onboarding, PcTest } from './onboarding.jsx';
 import { FriendsBlock } from './friends-block.jsx';
 import { LiveJournalCard } from './live-journal.jsx';
+import { PrecheckCard } from './precheck.jsx';
 import { LivesPage } from './lives.jsx';
 import { SceneTypes } from './scene-types.jsx';
 
@@ -82,6 +83,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
         </div>
       )}
       {error && <div className="bad" style={{ marginTop: 12 }}>L'analyse a échoué : {error}</div>}
+      <PrecheckCard />
       <LiveJournalCard onOpenLives={() => setPage('lives')} />
     </>
   );

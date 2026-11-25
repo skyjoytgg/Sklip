@@ -512,3 +512,13 @@ Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de 
   orange, une fois par scène et par overlay) s'il apparaît pendant le live.
 - Vérifié dans la vraie appli avec le faux OBS (live de 90 s) : alerte dans le journal au passage sur Valorant,
   overlay dessiné, « Cam en grand » choisi dans l'éditeur → visage centré, cadrage enregistré dans le montage.
+
+### 14 ter. Bouton « Vérifier avant le live » (accueil)
+- `app/src/main/precheck.js` + `precheck.jsx` : un clic juste avant le live. OBS connecté ? scènes de jeu /
+  discussion reconnues, overlays gênants, place libre sur le disque de l'enregistrement (GetRecordDirectory, lecture
+  seule ; rouge < 10 Go, orange < 30 Go), micro essayé 2 s par la capture de Sklip (fichier temporaire supprimé),
+  Valorant / Discord / musique ouverts (liste des logiciels ; « pas encore ouvert » n'est pas une erreur : la capture
+  les attrape dès qu'ils démarrent), Twitch connecté, marqueurs (F9, Stream Deck), mode d'analyse. Résumé :
+  « Tout est prêt », « Prêt, N points à vérifier » ou « N problèmes à régler ».
+- Essayé sur le PC de Sky : OBS fermé → rouge avec la marche à suivre ; micro capté, Discord et Spotify vus ; avec le
+  faux OBS : scènes, overlay « Logo », 160 Go libres. Requêtes OBS : toujours uniquement des Get….
