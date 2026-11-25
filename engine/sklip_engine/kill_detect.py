@@ -206,8 +206,68 @@ def find_kills(scan: Scan, banner_on: float = BANNER_ON, peak_min: float = BANNE
         if any(abs(t - x) <= noisy_margin for x in noisy):
             continue
         spectating = float(np.median(scan.spectate[i:j])) >= spectate_on
-        events.append(KillEvent(t=t, duration=dur, peak=peak, spectating=spectating))
+        # Kills enchaînés : l'emblème « redémarre » (score qui chute sous la moitié puis remonte).
+        starts = [i] + [i + k for k in _retriggers(scan.banner[i:j])]
+        for a, b in zip(starts, starts[1:] + [j]):
+            events.append(KillEvent(t=float(scan.t[a]), duration=(b - a) / scan.fps,
+                                    peak=float(scan.banner[a:b].max()), spectating=spectating))
     return events
+
+
+def _retriggers(b: np.ndarray) -> list[int]:
+    """Indices où un nouvel emblème commence à l'intérieur d'une même apparition.
+
+    Vérifié sur la VOD du 01/11 avec le fil des kills (25:30, 2:10:37, 2:22:08 ×3, 3:44:18).
+    """
+    out, ref, k = [], float(b[0]), 1
+    while k < len(b) - 1:
+        if b[k] < 0.5 * ref and b[k + 1:].max() > 0.8 * ref:
+            r = k + 1
+            while r < len(b) and b[r] < 0.8 * ref:     # le nouveau kill commence quand le score remonte
+                r += 1
+            out.append(r)
+            ref, k = float(b[r]), r + 1
+            continue
+        ref = max(ref, float(b[k]))
+        k += 1
+    return out
+
+
+DEATH_LEAD = 2.5      # la carte du coéquipier regardé apparaît ~2,5 s après la mort (VOD du 01/11)
+SPECTATE_MIN = 2.0    # durée minimale en spectateur pour compter une mort (s)
+SPECTATE_GAP = 5.0    # trous plus courts ignorés (changement de joueur regardé, flash…) (s)
+
+
+def find_deaths(scan: Scan, spectate_on: float = SPECTATE_ON) -> list[float]:
+    """Morts du streamer : début de chaque passage en spectateur, moins DEATH_LEAD.
+
+    Limite : si le streamer meurt en dernier de son équipe, il n'y a personne à regarder et la mort
+    n'est pas vue (le round se termine aussitôt).
+    """
+    segs = _segments(scan.spectate >= spectate_on)
+    merged: list[list[float]] = []
+    for i, j in segs:
+        a, b = float(scan.t[i]), float(scan.t[j - 1])
+        if merged and a - merged[-1][1] <= SPECTATE_GAP:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    return [max(0.0, a - DEATH_LEAD) for a, b in merged if b - a >= SPECTATE_MIN]
+
+
+def alive_checker(scan: Scan, spectate_on: float = SPECTATE_ON):
+    """Fonction t -> True si le streamer est vivant à l'instant t.
+
+    Vivant = pas en spectateur de t-1 s à t+4 s : la carte de spectateur n'apparaît que ~2,5 s après la mort,
+    alors que le portrait du joueur disparaît du bandeau du haut tout de suite (vu à 3:36:44 sur la VOD du 01/11).
+    """
+    spectating = scan.spectate >= spectate_on
+    before, after = int(1 * scan.fps), int((DEATH_LEAD + 1.5) * scan.fps)
+
+    def is_alive(t: float) -> bool:
+        i = int(np.searchsorted(scan.t, t))
+        return not spectating[max(0, i - before):i + after].any()
+    return is_alive
 
 
 def streamer_kills(scan: Scan, **kw) -> list[KillEvent]:

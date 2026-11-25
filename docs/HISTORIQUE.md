@@ -189,3 +189,35 @@ Points jamais exécutés pour de vrai (à vérifier en premier sur le PC de Sky)
   - VOD du 01/11 : 16 parties (beaucoup d'Escarmouche 2v2), 139 rounds ; 70 kills de Sky → 50 kills seuls +
     9 multi-kills (8 × 2K, 1 × 4K à 2:38:14 → 2:38:47, score resté 2-2), pas d'ace.
   - Un multi-kill/ace = un seul moment (au dernier kill, `meta.t_start` = premier kill) → un seul clip qui couvre tout.
+
+## 6. Claude Code — nuit du 24 au 25/11/2026 (Sky au téléphone : « lance tout ce qu'il y a à améliorer »)
+
+- **Morts de Sky** (`kill_detect.find_deaths`) : début du mode spectateur − 2,5 s. VOD 01/11 : 97 morts ; VOD 18/11 : 76.
+  Limite : mort en dernier de son équipe non vue.
+- **Kills enchaînés** (`kill_detect._retriggers`) : l'emblème « redémarre » (score sous la moitié puis remonte).
+  Vérifié avec le fil des kills (contour jaune = kills du joueur) : 25:30, 2:10:37, 2:22:08 (×3), 3:44:18.
+  VOD 01/11 : 13 multi-kills (12 × 2K, 1 × 3K, 1 × 4K) au lieu de 9.
+- **Joueurs en vie** (`rounds.read_hud`) : portraits du bandeau du haut (5 cases par équipe, serrés vers le centre,
+  un mort disparaît) ; lus avec le score sur les images clés.
+- **Clutchs** (`rounds.find_clutches`) : Sky dernier vivant de son équipe (et pas en spectateur, en regardant
+  4 s après car la carte spectateur arrive 2,5 s après la mort) face à ≥ 2, round gagné (notre score monte).
+  On ignore les 10 s après un changement de score (fin du round précédent).
+  Résultat : **0 clutch de Sky sur les 2 VOD** — les 2 candidats étaient des clutchs de mates (Vermaille, darkz).
+  Pas encore vu de vrai clutch de Sky pour valider. Idée : Valorant affiche « CLUTCH » à l'écran.
+- **VOD 18/11 (RANKED PLAT NEON)** : 62 kills de Sky (tous vérifiés à l'œil), 87 de mates écartés, 76 morts,
+  5 parties, 100 rounds, 13 multi-kills, 0 ace. Doublé suspect à vérifier : 2:09:31 → 2:10:42 (71 s d'écart).
+- **Appli** : bug au lancement corrigé — Electron 33 (Node 20) n'avait pas WebSocket → OBS ne se connectait jamais.
+  Passage à **Electron 45**, electron-builder 26, esbuild 0.28 (accord de Sky). Failles npm : 19 → 6 modérées
+  (outils de construction seulement, 0 dans l'appli livrée). Le binaire Electron s'installe avec
+  `node node_modules/electron/install.js` si npm ne l'a pas téléchargé (nouvelle politique `allowScripts`).
+  Appli lancée et vérifiée (accueil + éditeur) ; l'éditeur utilise encore `demo-data.js`.
+- Moteur : tolère le BOM ajouté par PowerShell sur l'entrée JSON. 50 tests moteur, 25 tests appli verts.
+- `detect-kills` renvoie maintenant : moments (kill / multikill / ace / clutch), morts, rounds, parties ;
+  `scan_file` / `hud_file` pour mettre les mesures en cache.
+
+### Reste à faire
+1. Relier analyse → dossier de stream → éditeur (remplacer `demo-data.js`).
+2. Vitesse de l'analyse des kills (~40 min pour 3 h 45) : essayer `-skip_frame noref`, analyse pendant le live.
+3. Vérifier un vrai clutch de Sky dès qu'il y en a un ; valider sur une VOD d'un pote (autre résolution).
+4. Tester le vrai OBS et le vrai Twitch (besoin de Sky devant le PC).
+5. Capture audio WASAPI, rires/cris, marqueurs, Stream Deck.

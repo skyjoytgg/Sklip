@@ -47,7 +47,7 @@ def cmd_render(p):
 
 def cmd_detect_kills(p):
     """Kills du streamer à l'image. Les kills des coéquipiers regardés après la mort sont écartés."""
-    from .kill_detect import scan_video, find_kills, Scan
+    from .kill_detect import scan_video, find_kills, find_deaths, alive_checker, Scan
     if p.get("scan_file") and Path(p["scan_file"]).exists():
         scan = Scan.load(p["scan_file"])
     else:
@@ -56,16 +56,24 @@ def cmd_detect_kills(p):
                           progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
         if p.get("scan_file"):
             scan.save(p["scan_file"])
-    from .rounds import read_scores, rounds_from_scores, group_kills
+    from .rounds import Hud, read_hud, rounds_from_scores, group_kills, find_clutches
     events = find_kills(scan)
     kill_times = [round(e.t, 2) for e in events if not e.spectating]
-    rounds = []
+    rounds, clutches = [], []
     if p.get("rounds", True) and p.get("video"):
-        emit("progress", fraction=1.0, message="Lecture du score (rounds)")
-        rounds = rounds_from_scores(*read_scores(p["video"]))
-    moments = group_kills(kill_times, rounds)
+        if p.get("hud_file") and Path(p["hud_file"]).exists():
+            hud = Hud.load(p["hud_file"])
+        else:
+            emit("progress", fraction=1.0, message="Lecture du score et des joueurs en vie")
+            hud = read_hud(p["video"])
+            if p.get("hud_file"):
+                hud.save(p["hud_file"])
+        rounds = rounds_from_scores(hud.t, hud.scores)
+        clutches = find_clutches(hud, rounds, kill_times, alive_checker(scan))
+    moments = sorted(group_kills(kill_times, rounds) + clutches, key=lambda m: m.t)
     return {"moments": [m.to_dict() for m in moments],
             "spectated_kills": sum(e.spectating for e in events),
+            "deaths": [round(d, 2) for d in find_deaths(scan)],
             "rounds": len(rounds), "games": len({r.game for r in rounds})}
 
 
@@ -95,6 +103,7 @@ def main(argv=None) -> int:
         return 2
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+        raw = raw.lstrip("﻿")    # PowerShell ajoute parfois un BOM en tête
         params = json.loads(raw) if raw.strip() else {}
         emit("result", data=COMMANDS[argv[0]](params))
         return 0

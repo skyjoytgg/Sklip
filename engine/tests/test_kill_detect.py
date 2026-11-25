@@ -3,7 +3,8 @@ import numpy as np
 import pytest
 
 from sklip_engine.kill_detect import (
-    BANNER_ON, BANNER_PX, SPEC_H, SPEC_W, Scan, _icon, banner_score, find_kills, spectate_score, streamer_kills,
+    BANNER_ON, BANNER_PX, SPEC_H, SPEC_W, Scan, _icon, banner_score, find_deaths, find_kills, spectate_score,
+    streamer_kills,
 )
 
 rng = np.random.default_rng(0)
@@ -69,6 +70,19 @@ def test_find_kills_separe_streamer_et_spectateur():
     assert [e.t for e in streamer_kills(sc)] == [0.5]
 
 
+def test_kills_enchaines_separes():
+    # Scores réels de la VOD du 01/11 à 2:22:08 : 3 kills d'affilée (confirmés par le fil des kills).
+    b = [1, 77, 75, 34, 78, 28, 58, 84, 92, 82, 70, 103, 96, 1]
+    ev = find_kills(_scan(b, [0.1] * len(b)))
+    assert len(ev) == 3
+    # 2:10:37 : 2 kills.
+    b = [1, 39, 37, 118, 116, 119, 119, 115, 35, 44, 122, 129, 128, 119, 115, 65, 1]
+    assert len(find_kills(_scan(b, [0.1] * len(b)))) == 2
+    # Un emblème qui ondule sans vraie chute reste un seul kill.
+    b = [1, 100, 102, 98, 70, 96, 108, 106, 1]
+    assert len(find_kills(_scan(b, [0.1] * len(b)))) == 1
+
+
 def test_embleme_faible_ignore():
     sc = _scan([1, 25, 28, 27, 26, 1], [0.1] * 6)
     assert find_kills(sc) == []
@@ -80,6 +94,13 @@ def test_ecran_choix_agent_ignore():
     sc = _scan(b, [0.1] * len(b))
     ev = find_kills(sc)
     assert len(ev) == 1 and ev[0].t == pytest.approx((4 + 80 + 20 + 6 + 200) / 4)
+
+
+def test_morts_depuis_le_mode_spectateur():
+    # spectateur de 10 s à 20 s (avec un trou de 2 s), puis un passage trop court (0,5 s) à 40 s
+    s = [0.1] * 40 + [0.95] * 16 + [0.1] * 8 + [0.95] * 16 + [0.1] * 80 + [0.95] * 2 + [0.1] * 10
+    sc = _scan([1] * len(s), s)
+    assert find_deaths(sc) == [pytest.approx(10.0 - 2.5)]
 
 
 def test_scan_sauvegarde_et_relecture(tmp_path):
