@@ -77,7 +77,7 @@ export function CamEditor({ videoSrc, time, cam, detected, onApply, onAuto, onNo
 }
 
 /** La vraie webcam dans l'aperçu (découpée dans la vidéo du stream), comme à l'export. */
-export function CamCrop({ src, cam, time, playing, boxRatio, full = false }) {
+export function CamCrop({ src, cam, time, playing, boxRatio, full = false, focus = null }) {
   const ref = useRef(null);
   useEffect(() => {
     const v = ref.current;
@@ -86,11 +86,14 @@ export function CamCrop({ src, cam, time, playing, boxRatio, full = false }) {
     if (playing && v.paused) v.play().catch(() => {});
     if (!playing && !v.paused) v.pause();
   });
-  // Comme FFmpeg : la webcam remplit la case (on coupe ce qui dépasse), sans être déformée.
+  // Comme FFmpeg : la webcam remplit la case (on coupe ce qui dépasse), sans être déformée,
+  // centrée sur le visage s'il est connu (« Cam en grand »), sinon au milieu.
   const camRatio = (cam.w * 16) / (cam.h * 9);
+  const fx = focus ? focus.x : 0.5; const fy = focus ? focus.y : 0.5;
+  const shift = (k, f) => -Math.min(Math.max(f * k - 0.5, 0), k - 1) * 100;
   const inner = camRatio >= boxRatio
-    ? { height: '100%', width: `${(camRatio / boxRatio) * 100}%`, left: `${-((camRatio / boxRatio) - 1) * 50}%`, top: 0 }
-    : { width: '100%', height: `${(boxRatio / camRatio) * 100}%`, top: `${-((boxRatio / camRatio) - 1) * 50}%`, left: 0 };
+    ? { height: '100%', width: `${(camRatio / boxRatio) * 100}%`, left: `${shift(camRatio / boxRatio, fx)}%`, top: 0 }
+    : { width: '100%', height: `${(boxRatio / camRatio) * 100}%`, top: `${shift(boxRatio / camRatio, fy)}%`, left: 0 };
   return (
     <div className={'pv-cam real' + (full ? ' full' : '')}>
       <div className="cam-inner" style={inner}>

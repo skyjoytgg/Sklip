@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('sklip', {
   twitchVideos: () => ipcRenderer.invoke('twitch:videos'),
   onTwitchStatus: on('twitch:status'),
   onTwitchEvent: on('twitch:event'),
+  obsCurrent: () => ipcRenderer.invoke('obs:current'),
   onObsStatus: on('obs:status'),
   onObsState: on('obs:state'),
   onObsEvent: on('obs:event'),

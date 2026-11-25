@@ -20,6 +20,7 @@ function makeClip(c) {
     layout: c.layout || 'cam_top',
     cam: c.cam || null,          // webcam de la scène OBS de ce clip (Just Chatting…), sinon celle du montage
     scene: c.scene || null,      // passage : « VALORANT », « Just Chatting »…
+    focus: c.focus || null,      // « Cam en grand » : centre du visage dans la webcam ({ x, y } de 0 à 1)
     volumes: c.volumes || {},
     moments: c.moments || [],
     subs: c.subs || null,        // sous-titres : null = pas encore générés ; sinon lignes [{ start, end, words }]
@@ -207,10 +208,12 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   else if (best && best.type === 'multikill') title = `${best.meta.count}K 😤`;
   else if (theme === 'drole') title = 'Le moment où tout part en vrille 😂';
   else if (theme === 'communaute') title = 'Merci la commu ❤️';
+  else if (theme === 'discussion') title = 'En direct avec le chat 🎙️';
   else title = 'Les meilleurs kills du stream 🎯';
   const tags = ['#valorant', '#valorantclips', '#twitch', '#gaming'];
   if (p.fmt === '9x16') tags.push('#shorts', '#fyp');
   if (theme === 'drole') tags.push('#funny');
+  if (theme === 'discussion') tags.push('#justchatting');
   const desc = [streamTitle && `Extrait du live « ${streamTitle} »`, channel && `En live sur twitch.tv/${channel}`]
     .filter(Boolean).join(' — ');
   return { title: title.trim(), description: desc, hashtags: tags, format: p.fmt, duration: Math.round(totalDuration(p) * 10) / 10 };
@@ -364,6 +367,7 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     music_start: musicStart || 0,
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
+      focus: c.layout === 'cam_full' && c.focus ? c.focus : undefined,
       moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c) })),
   };
 }

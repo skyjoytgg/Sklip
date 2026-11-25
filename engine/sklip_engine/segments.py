@@ -62,6 +62,11 @@ def drop_paused(moments: list, segments: list[dict] | None) -> list:
     return [m for m in moments if (segment_at(segments, m.t) or {}).get("type") != "pause"]
 
 
+def in_scene(moments: list, kind: str, segments: list[dict] | None, hud: list[dict]) -> list:
+    """Moments pendant un type de scène (« discussion »…) : scène OBS si connue, sinon bandeau de score."""
+    return [m for m in moments if scene_type(segment_at(segments or [], m.t), segment_at(hud, m.t)) == kind]
+
+
 def assign_layouts(clips: list[dict], segments: list[dict] | None, hud: list[dict]) -> None:
     """Met la mise en page et la webcam de son passage sur chaque clip (dictionnaires de select_clips)."""
     for c in clips:

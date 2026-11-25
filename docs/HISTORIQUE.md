@@ -469,3 +469,34 @@ Pas encore testé : un vrai live avec Valorant, micro et Discord réels.
 - **Overlays des potes** (question de Sky, capture d'un overlay « Rang actuel » en haut à droite) : sans effet, Sklip
   ne lit pas le killfeed. Il lit l'emblème de kill (bas-centre), le score (haut-centre) et l'icône spectateur
   (bas-gauche) : un overlay posé sur ces zones-là empêcherait la détection.
+
+## 14. Alerte overlays, cam centrée sur le visage, thème Discussion, répétition avec scènes (25/11/2026)
+Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de commencer).
+- **Alerte overlay** (`obs-scenes.js`, `READ_ZONES`, `overlaysOnZones`) : dans une scène de jeu, toute source posée
+  PAR-DESSUS la capture du jeu qui cache au moins 15 % d'une zone lue (score en haut au centre, bannière des kills en
+  bas au centre, icône spectateur en bas à gauche) est signalée dans « Tes scènes OBS » (Réglages + assistant),
+  avec son nom. Ignorés : sources sous le jeu, webcam, overlays plein écran (alertes, en général transparents).
+  Toujours en lecture seule.
+- **« Cam en grand » centrée sur le visage** (`engine/sklip_engine/camfocus.py`) : OpenCV 5 n'embarque plus de
+  détecteur de visage sans modèle à télécharger → même idée que la détection de webcam : dans la webcam la pièce est
+  fixe, le streamer bouge ; on prend le plus gros bloc qui bouge sur 8 images du clip, le haut de ce bloc = la tête.
+  Résultat `focus` {x, y} sur le clip → rendu (`_layout`, recadrage qui reste dans la webcam) et aperçu de l'éditeur.
+  Rien ne bouge → centre de la webcam. Vérifié sur la VOD (3 cas sur 4 pile sur la tête ; le 4e : cadre de test
+  qui débordait sur le jeu, ce qui n'arrive pas avec le cadre lu dans OBS).
+- **Thème « Discussion (Just Chatting) »** : rires, cris, chat qui s'emballe, raids, marqueurs, clips de viewers,
+  peaks — seulement pendant les passages discussion (scène OBS, sinon hors du bandeau de score Valorant).
+  Titre proposé « En direct avec le chat 🎙️ », #justchatting.
+- **Bug corrigé** (vu pendant la répétition) : OBS déjà ouvert au lancement de Sklip → la connexion se faisait avant
+  que la fenêtre soit prête, l'accueil affichait « OBS non connecté » / « Pas d'enregistrement ». La fenêtre demande
+  maintenant l'état d'OBS à l'ouverture (`obs:current`) et l'état d'enregistrement est envoyé à chaque début/fin.
+- **Couleurs de la frise sans catégorie Twitch** : une scène de discussion / pause prend le nom de sa scène OBS
+  (« Just Chatting » en bleu) au lieu de la devinette du bandeau de score.
+- **Répétition générale avec scènes** (faux OBS v5 : Just Chatting cam en grand → Valorant avec webcam en haut à
+  gauche + overlays « Rang actuel », « Logo » sur la bannière des kills, « Alertes » plein écran → Just Chatting ;
+  4 min de live, 2 marqueurs Stream Deck) dans la vraie appli : Sklip n'a envoyé que GetStreamStatus,
+  GetRecordStatus, GetCurrentProgramScene, GetVideoSettings, GetSceneItemList, GetSceneList ; journal avec les
+  3 changements de scène ; 3 passages ; clips de jeu en « cam en haut », marqueur du Just Chatting en « Cam en
+  grand » avec cadrage visage, thème Discussion limité à ce passage ; seul « Logo » signalé dans les Réglages ;
+  onglet Lives (miniature, stats, frise bleu/rouge/bleu) OK.
+- Reste à vérifier pendant un vrai live : vrai OBS de Sky, vraie catégorie Twitch, cadrage visage sur une vraie
+  scène Just Chatting.

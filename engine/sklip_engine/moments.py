@@ -31,6 +31,10 @@ THEMES: dict[str, dict] = {
     "kills": {"label": "Kills / Aces / Clutchs", "types": ["ace", "multikill", "clutch", "kill"]},
     "drole": {"label": "Moments drôles", "types": ["funny_death", "laugh", "scream", "chat_spike", "marker"]},
     "communaute": {"label": "Moments communauté", "types": ["raid", "viewer_peak", "viewer_clip", "chat_spike"]},
+    # Pendant les passages « discussion » (Just Chatting de début / fin de live) : rires, cris, chat qui s'emballe,
+    # raids, marqueurs. Rien pendant les parties : la webcam en grand, c'est le streamer qui parle.
+    "discussion": {"label": "Discussion (Just Chatting)", "scene": "discussion",
+                   "types": ["laugh", "scream", "chat_spike", "raid", "marker", "viewer_clip", "viewer_peak"]},
 }
 
 # Types qui n'ont de sens qu'en jeu (pas cherchés hors Valorant).

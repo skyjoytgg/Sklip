@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { itemRect, readCam, readScenes, guessType } = require('../src/main/obs-scenes');
+const { itemRect, readCam, readScenes, guessType, overlaysOnZones } = require('../src/main/obs-scenes');
 
 const T = (o) => ({ sourceWidth: 1920, sourceHeight: 1080, scaleX: 1, scaleY: 1, alignment: 5, boundsType: 'OBS_BOUNDS_NONE', ...o });
 
@@ -65,4 +65,19 @@ test('liste des scènes d’OBS dans l’ordre d’OBS, avec le type deviné et 
   assert.strictEqual(guessType(0.5, 0.3), 'discussion');  // grande cam, jeu en petit
   assert.strictEqual(guessType(0.3, 0), 'discussion');
   assert.strictEqual(guessType(0, 0), 'pause');
+});
+
+test('overlay posé sur une zone lue par Sklip (score, kills, spectateur) : signalé, le reste ignoré', () => {
+  const game = { kind: 'game_capture', name: 'Jeu', n: { x: 0, y: 0, w: 1, h: 1 } };
+  const items = [
+    { kind: 'browser_source', name: 'Sous le jeu', n: { x: 0.4, y: 0, w: 0.2, h: 0.1 } },     // caché par le jeu
+    game,
+    { kind: 'dshow_input', name: 'Webcam', n: { x: 0, y: 0, w: 0.22, h: 0.3 } },
+    { kind: 'browser_source', name: 'Rang actuel', n: { x: 0.8, y: 0, w: 0.2, h: 0.08 } },    // en haut à droite : OK
+    { kind: 'image_source', name: 'Logo', n: { x: 0.45, y: 0.75, w: 0.1, h: 0.1 } },         // sur la bannière des kills
+    { kind: 'browser_source', name: 'Alertes', n: { x: 0, y: 0, w: 1, h: 1 } },              // plein écran transparent
+    { kind: 'text_gdiplus_v3', name: 'Barre', n: { x: 0, y: 0, w: 1, h: 0.05 } },            // bandeau en haut
+  ];
+  assert.deepStrictEqual(overlaysOnZones(items), [{ name: 'Logo', zones: ['kill'] }, { name: 'Barre', zones: ['score'] }]);
+  assert.deepStrictEqual(overlaysOnZones(items.filter((it) => it !== game)), []);   // pas de jeu dans la scène
 });

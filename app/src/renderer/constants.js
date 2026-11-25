@@ -3,6 +3,7 @@ export const THEMES = [
   { id: 'kills', label: 'Kills / Aces / Clutchs' },
   { id: 'drole', label: 'Moments drôles' },
   { id: 'communaute', label: 'Moments communauté' },
+  { id: 'discussion', label: 'Discussion (Just Chatting)' },
 ];
 
 export const MODES = {

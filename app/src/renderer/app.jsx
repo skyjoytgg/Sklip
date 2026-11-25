@@ -199,6 +199,7 @@ function App() {
   useEffect(() => {
     api.getSettings().then(setSettings);
     api.analysisStatus().then(setAnalysis);
+    api.obsCurrent().then((s) => s && setObs((o) => ({ ...o, ...s })));
     const offs = [
       api.onAnalysisState((s) => setAnalysis(s)),
       api.onEngineProgress((p) => p.command === 'analyze' && setAnalysis((a) => (a.running ? { ...a, ...p } : a))),

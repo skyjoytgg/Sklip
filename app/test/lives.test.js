@@ -120,3 +120,13 @@ test('éditeur : webcam de la scène du clip (Just Chatting en grand), réglage 
   assert.deepStrictEqual(manual.clips.map((c) => c.cam && c.cam.x), [0.125, 0, undefined]);
   assert.strictEqual(E.LAYOUTS.cam_full, 'Cam en grand');
 });
+
+test('éditeur : « Cam en grand » garde le cadrage sur le visage trouvé par le moteur', () => {
+  const E = require('../src/renderer/editor-model');
+  const camJ = { x: 0.125, y: 0, w: 0.75, h: 1 };
+  const p = E.createProject({ streamDuration: 600, clips: [
+    { start: 10, end: 20, layout: 'cam_full', cam: camJ, focus: { x: 0.7, y: 0.3 } },
+    { start: 30, end: 40, layout: 'cam_top', cam: camJ, focus: { x: 0.7, y: 0.3 } }] });
+  const spec = E.toRenderSpec(p, { video: 'v.mkv', output: 'o.mp4', cam: { x: 0, y: 0, w: 0.2, h: 0.3 } });
+  assert.deepStrictEqual(spec.clips.map((c) => c.focus), [{ x: 0.7, y: 0.3 }, undefined]);
+});

@@ -109,7 +109,7 @@ function Preview({ project, player, videoSrc, cam, camManual = false }) {
       <div className="pv-frame">
         {vertical && layout === 'cam_top' && camBox}
         {camFull && (videoSrc && theCam && clip
-          ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 1920} full />
+          ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 1920} full focus={clip.focus} />
           : <div className="pv-cam full">CAM EN GRAND</div>)}
         {camFull ? <div className="pv-hidden">{gameBox}</div> : gameBox}
         {vertical && layout === 'cam_bottom' && camBox}

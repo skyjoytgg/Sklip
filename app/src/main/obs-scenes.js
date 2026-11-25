@@ -13,6 +13,16 @@ const FULL = 0.45;        // la webcam occupe au moins 45 % de l'image : « cam�
 const GAME_MIN = 0.5;     // une capture de jeu sur au moins la moitié de l'image : scène de jeu
 const CAM_MIN = 0.04;     // en dessous, ce n'est pas vraiment une webcam affichée
 
+// Zones de l'image de Valorant que Sklip LIT pour repérer les moments (fractions de l'image, cf. moteur :
+// kill_detect.py et rounds.py). Un overlay posé dessus (rang, alertes, chat…) peut cacher un kill ou le score.
+const READ_ZONES = {
+  score: { label: 'le score en haut au centre', x: 0.23, y: 0, w: 0.55, h: 0.09 },
+  kill: { label: 'la bannière des kills en bas au centre', x: 0.4375, y: 0.687, w: 0.125, h: 0.222 },
+  spectate: { label: "l'icône de spectateur en bas à gauche", x: 0.045, y: 0.765, w: 0.06, h: 0.065 },
+};
+const OVERLAP = 0.15;     // un overlay qui cache au moins 15 % d'une zone gêne la lecture
+const HUGE = 0.6;         // overlay plein écran (alertes, cadre) : en général transparent au milieu, ignoré
+
 /** Types de scène que le streamer peut choisir. */
 const SCENE_TYPES = { jeu: 'Jeu', discussion: 'Discussion (Just Chatting)', pause: 'Pause (pas de clips)' };
 
@@ -74,24 +84,45 @@ async function flatten(list, sceneName, isGroup = false, depth = 0, off = { x: 0
       out.push(...await flatten(list, it.sourceName, !!it.isGroup, depth + 1,
         { x: abs.x, y: abs.y, sx: off.sx * sx, sy: off.sy * sy }));
     } else {
-      out.push({ kind: it.inputKind || '', rect: abs });
+      out.push({ kind: it.inputKind || '', name: it.sourceName || '', rect: abs });
     }
   }
   return out;
 }
 
-/** Webcam (la plus grande) et place du jeu dans une scène, + type deviné. */
+const area = (r) => (r ? r.w * r.h : 0);
+function overlap(a, b) {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * Overlays posés PAR-DESSUS le jeu sur une zone lue par Sklip. `items` dans l'ordre d'OBS (du bas vers le haut),
+ * avec `n` = rectangle ramené entre 0 et 1. → [{ name, zones: ['kill', …] }]
+ */
+function overlaysOnZones(items) {
+  const gameAt = items.findIndex((it) => GAME_KINDS.has(it.kind));
+  if (gameAt < 0) return [];
+  const out = [];
+  for (const it of items.slice(gameAt + 1)) {
+    if (CAM_KINDS.has(it.kind) || GAME_KINDS.has(it.kind) || area(it.n) >= HUGE) continue;
+    const zones = Object.entries(READ_ZONES).filter(([, z]) => overlap(it.n, z) >= OVERLAP * area(z)).map(([id]) => id);
+    if (zones.length) out.push({ name: it.name, zones });
+  }
+  return out;
+}
+
+/** Webcam (la plus grande), place du jeu, overlays gênants dans une scène, + type deviné. */
 async function sceneInfo(list, sceneName, baseW, baseH) {
-  const items = await flatten(list, sceneName);
-  const area = (r) => (r ? r.w * r.h : 0);
+  const items = (await flatten(list, sceneName)).map((it) => ({ ...it, n: normalize(it.rect, baseW, baseH) }))
+    .filter((it) => it.n);
   let cam = null; let game = 0;
   for (const it of items) {
-    const n = normalize(it.rect, baseW, baseH);
-    if (!n) continue;
-    if (CAM_KINDS.has(it.kind) && area(n) > area(cam)) cam = n;
-    if (GAME_KINDS.has(it.kind)) game = Math.max(game, area(n));
+    if (CAM_KINDS.has(it.kind) && area(it.n) > area(cam)) cam = it.n;
+    if (GAME_KINDS.has(it.kind)) game = Math.max(game, area(it.n));
   }
-  return { cam, full: area(cam) >= FULL, guess: guessType(area(cam), game) };
+  return { cam, full: area(cam) >= FULL, guess: guessType(area(cam), game), overlays: overlaysOnZones(items) };
 }
 
 /** Type deviné : beaucoup de jeu → jeu ; sinon une webcam → discussion ; sinon pause (« Je reviens »…). */
@@ -125,9 +156,9 @@ async function readScenes(obs, chosen = {}) {
   for (const s of [...scenes].sort((a, b) => (b.sceneIndex ?? 0) - (a.sceneIndex ?? 0))) {
     const info = await sceneInfo(list, s.sceneName, baseW, baseH);
     out.push({ name: s.sceneName, guess: info.guess, type: chosen[s.sceneName] || info.guess, chosen: !!chosen[s.sceneName],
-      cam: info.cam, full: info.full });
+      cam: info.cam, full: info.full, overlays: info.overlays });
   }
   return out;
 }
 
-module.exports = { itemRect, normalize, flatten, sceneInfo, guessType, readCam, readScenes, SCENE_TYPES, CAM_KINDS, GAME_KINDS, FULL };
+module.exports = { itemRect, normalize, flatten, sceneInfo, guessType, overlaysOnZones, READ_ZONES, readCam, readScenes, SCENE_TYPES, CAM_KINDS, GAME_KINDS, FULL };

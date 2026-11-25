@@ -37,7 +37,9 @@ def cmd_render(p):
         video=p["video"], output=p["output"], fmt=p.get("fmt", "9x16"),
         clips=[RenderClip(c["start"], c["end"], c.get("layout", "cam_top"), c.get("volumes", {}),
                           c.get("moments", []), c.get("words"), c.get("friend"),
-                          Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None) for c in p["clips"]],
+                          Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None,
+                          (float(c["focus"]["x"]), float(c["focus"]["y"])) if c.get("focus") else None)
+               for c in p["clips"]],
         cam=Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") and p["cam"].get("enabled", True) else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
         volumes={**MontageSpec.__dataclass_fields__["volumes"].default_factory(), **p.get("volumes", {})},

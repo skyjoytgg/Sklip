@@ -336,6 +336,10 @@ function startObs() {
     setTimeout(() => obs && !obs.identified && obs.connect(), 5000); // OBS fermé : on réessaie
   });
   obs.on('state', (s) => send('obs:state', s));
+  // L'accueil suit l'enregistrement (« Enregistrement en cours ») sans attendre le prochain état complet.
+  const pushState = () => send('obs:state', { ...obs.state });
+  obs.on('recordStarted', pushState);
+  obs.on('recordStopped', pushState);
   obs.on('sceneChanged', () => trackScene());
   obs.on('streamStarted', () => send('obs:event', { type: 'streamStarted' }));
   obs.on('streamStopped', () => send('obs:event', { type: 'streamStopped' }));
@@ -424,6 +428,8 @@ app.whenReady().then(() => {
   ipcMain.handle('journal:get', (_e, id) => journal.get(id));
   const streamsDir = () => path.join(libraryRoot(), 'Streams');
   const inLibrary = (folder) => folder && path.resolve(folder).startsWith(path.resolve(streamsDir()) + path.sep);
+  // État d'OBS au moment où la fenêtre s'ouvre (OBS a souvent été connecté avant qu'elle soit prête).
+  ipcMain.handle('obs:current', () => (obs ? { connected: !!obs.identified, ...obs.state } : { connected: false }));
   ipcMain.handle('obs:scenes', async () => {
     if (!obs || !obs.identified) return null;
     try { return await readScenes(obs, settings.get().sceneTypes || {}); } catch (e) { log.warn('Scènes OBS :', e); return null; }

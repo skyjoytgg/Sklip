@@ -138,17 +138,34 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     from .segments import drop_paused
     moments = drop_paused(moments, segments)       # pas de clip pendant « Je reviens », écran de fin…
 
-    clips = {th: [c.to_dict() for c in select_clips(moments, th, target, stream_duration=duration, speech=speech)] for th in themes}
-    # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
-    from .segments import assign_layouts, hud_segments, segment_at
+    from .segments import assign_layouts, hud_segments, in_scene, segment_at
     hud_segs = hud_segments(hud.t, hud.score_left, duration)
+
+    def theme_moments(th):
+        # Thème lié à un type de scène (« Discussion ») : seulement les moments de ces passages.
+        kind = THEMES[th].get("scene")
+        return in_scene(moments, kind, segments, hud_segs) if kind else moments
+
+    clips = {th: [c.to_dict() for c in select_clips(theme_moments(th), th, target, stream_duration=duration, speech=speech)]
+             for th in themes}
+    # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
     for th in clips:
         assign_layouts(clips[th], segments, hud_segs)
+    # « Cam en grand » : centrée sur le visage du streamer (ce qui bouge dans la webcam).
+    from .camfocus import add_focus
+    report(0.98, "Cadrage des clips webcam")
+    for th in clips:
+        add_focus(video, clips[th], cam)
     if segments:
         for s in segments:
             if not s.get("game"):
                 h = segment_at(hud_segs, (s["start"] + s["end"]) / 2)
-                s["game_guess"] = (h or {}).get("game") or "Hors jeu"
+                # Pas de catégorie Twitch : une scène de discussion garde son nom (« Just Chatting »), sinon le
+                # bandeau de score dit si c'est Valorant.
+                if s.get("type") in ("discussion", "pause") and s.get("scene"):
+                    s["game_guess"] = s["scene"]
+                else:
+                    s["game_guess"] = (h or {}).get("game") or "Hors jeu"
     segs_out = segments or hud_segs
     stats = _stats(moments, deaths, rounds, duration, extra_stats or {})
     session = {

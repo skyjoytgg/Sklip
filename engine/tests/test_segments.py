@@ -52,3 +52,20 @@ def test_pas_de_clip_pendant_une_pause():
     ms = [Moment("kill", 50.0), Moment("marker", 200.0), Moment("ace", 500.0)]
     assert [m.t for m in drop_paused(ms, segs)] == [50.0, 500.0]
     assert drop_paused(ms, None) == ms
+
+
+def test_theme_discussion_seulement_pendant_les_passages_discussion():
+    from sklip_engine.moments import THEMES
+    from sklip_engine.segments import in_scene
+    from sklip_engine.selection import select_clips
+    segs = [{"start": 0, "end": 600, "type": "discussion"}, {"start": 600, "end": 3000, "type": "jeu"},
+            {"start": 3000, "end": 3600, "type": "discussion"}]
+    ms = [Moment("laugh", 100.0, 70), Moment("scream", 1200.0, 80), Moment("raid", 3100.0, 90),
+          Moment("ace", 1500.0, 100), Moment("chat_spike", 2000.0, 60)]
+    inside = in_scene(ms, "discussion", segs, [])
+    assert [m.t for m in inside] == [100.0, 3100.0]
+    clips = select_clips(inside, "discussion", 30)
+    assert clips and all(m.type in THEMES["discussion"]["types"] for c in clips for m in c.moments)
+    # VOD sans infos OBS : hors du bandeau de score Valorant = discussion.
+    hud = [{"start": 0, "end": 600, "game": None}, {"start": 600, "end": 3600, "game": "VALORANT"}]
+    assert [m.t for m in in_scene(ms, "discussion", None, hud)] == [100.0]

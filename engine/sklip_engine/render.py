@@ -70,6 +70,7 @@ class RenderClip:
     words: list | None = None                     # sous-titres déjà connus (sinon transcription)
     friend: dict | None = None                    # réaction d'un pote : {file, offset, mode, pos, cut_at, cut_dur}
     cam: Rect | None = None                       # webcam de la scène de ce clip (sinon celle du montage)
+    focus: tuple | None = None                    # « Cam en grand » : centre du visage dans la webcam (x, y de 0 à 1)
 
 
 @dataclass
@@ -137,13 +138,13 @@ def friend_filter(fmt: str, layout: str, friend: dict, inp: str, delay: float = 
 
 def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
                  dur: float, fade: float, post: str = "", friend: dict | None = None,
-                 friend_input: str | None = None, friend_delay: float = 0.0) -> str:
+                 friend_input: str | None = None, friend_delay: float = 0.0, focus: tuple | None = None) -> str:
     """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
     (ex. incrustation des sous-titres). `friend` : réaction d'un pote (entrée `friend_input`)."""
     tail = [post] if post else []
     if fade > 0 and dur > 2 * fade:
         tail += [f"fade=t=in:st=0:d={fade}", f"fade=t=out:st={dur - fade:.3f}:d={fade}"]
-    base = _layout(fmt, layout, src_w, src_h, cam, fps)
+    base = _layout(fmt, layout, src_w, src_h, cam, fps, focus)
     last = "[lay]"
     if friend and friend_input:
         chain, last = friend_filter(fmt, layout, friend, friend_input, friend_delay)
@@ -151,7 +152,8 @@ def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None
     return f"{base};{last}{','.join(tail) or 'null'}[v]"
 
 
-def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int) -> str:
+def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
+            focus: tuple | None = None) -> str:
     """Mise en page du clip : entrée [0:v], sortie [lay]."""
     if fmt == "16x9":
         return (f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
@@ -159,14 +161,16 @@ def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps
 
     W, H = 1080, 1920
     if layout == "cam_full" and cam is not None:
-        # Webcam en grand (Just Chatting…) : la webcam recadrée au format 9:16, centrée, remplit l'écran.
+        # Webcam en grand (Just Chatting…) : la webcam recadrée au format 9:16 remplit l'écran,
+        # centrée sur le visage s'il a été trouvé (camfocus), sinon au milieu de la webcam.
         cx, cy, cw, ch = cam.x * src_w, cam.y * src_h, cam.w * src_w, cam.h * src_h
+        fx, fy = focus if focus else (0.5, 0.5)
         if cw / ch > W / H:
             nw = ch * W / H
-            cx, cw = cx + (cw - nw) / 2, nw
+            cx, cw = cx + min(max(fx * cw - nw / 2, 0), cw - nw), nw
         else:
             nh = cw * H / W
-            cy, ch = cy + (ch - nh) / 2, nh
+            cy, ch = cy + min(max(fy * ch - nh / 2, 0), ch - nh), nh
         pos = lambda v: int(round(v / 2)) * 2      # décalage (peut être 0)
         return (f"[0:v]crop={_even(cw)}:{_even(ch)}:{pos(cx)}:{pos(cy)},scale={W}:{H},setsar=1,fps={fps}[lay]")
     if layout in ("game_only", "cam_full") or cam is None:
@@ -236,7 +240,7 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
         cmd += ["-ss", f"{max(0.0, u):.3f}", "-t", f"{dur:.3f}", "-i", clip.friend["file"]]
     vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, spec.fade,
                       post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
-                      friend_input=friend_input, friend_delay=friend_delay)
+                      friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
             *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
     return cmd

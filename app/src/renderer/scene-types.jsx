@@ -10,6 +10,8 @@ const TYPES = [
   ['pause', 'Pause', 'Pas de clips'],
 ];
 const ICON = { jeu: 'kill', discussion: 'chat', pause: 'record' };
+// Zones lues par Sklip dans l'image du jeu (mêmes noms que READ_ZONES dans obs-scenes.js).
+const ZONES = { score: 'le score en haut', kill: 'la bannière des kills en bas au centre', spectate: "l'icône de spectateur en bas à gauche" };
 
 function Mini({ cam, type }) {
   return (
@@ -43,6 +45,10 @@ export function SceneTypes({ settings, set }) {
           <div className="sc-name">
             <b>{s.name}</b>
             <div className="note">{s.chosen ? 'Choisi par toi' : 'Deviné par Sklip'}{s.cam ? '' : ' · pas de webcam dans cette scène'}</div>
+            {s.type === 'jeu' && (s.overlays || []).map((o) => (
+              <div key={o.name} className="sc-warn">⚠ « {o.name} » cache {o.zones.map((z) => ZONES[z]).join(' et ')} :
+                Sklip risque de rater des moments. Déplace-le un peu dans OBS si tu peux.</div>
+            ))}
           </div>
           <div className="sc-types">
             {TYPES.map(([id, label, hint]) => (
