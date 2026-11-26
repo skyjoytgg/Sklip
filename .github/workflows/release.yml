@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# Une seule construction à la fois par version (évite deux releases « v0.1.0 » comme le 26/11).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows:
     runs-on: windows-latest
