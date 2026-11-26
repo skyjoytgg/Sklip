@@ -56,6 +56,21 @@ def cmd_render(p):
     return {"output": out}
 
 
+def cmd_game_chat(p):
+    """Messages écrits dans le chat du jeu pendant chaque clip (et un peu avant) : {"clips": {id: [{t, user, text, team}]}}."""
+    from .gamechat import chat_between
+    out = {}
+    clips = p["clips"]
+    before = float(p.get("before", 10.0))
+    for i, c in enumerate(clips):
+        emit("progress", fraction=round(i / len(clips), 3), message=f"Chat du jeu : clip {i + 1}/{len(clips)}")
+        try:
+            out[c["id"]] = chat_between(p["video"], max(0.0, c["start"] - before), c["end"])
+        except Exception:
+            out[c["id"]] = []                 # lecture impossible : le clip reste sans messages du jeu
+    return {"clips": out}
+
+
 def cmd_transcribe(p):
     """Sous-titres des clips, pour les afficher et les corriger dans l'éditeur.
     Renvoie les mots en temps du stream : {"clips": {id: [{"start", "end", "text"}]}}."""
@@ -197,6 +212,7 @@ COMMANDS = {
     "stream-folder": cmd_stream_folder,
     "detect-kills": cmd_detect_kills,
     "transcribe": cmd_transcribe,
+    "game-chat": cmd_game_chat,
     "friend-extract": cmd_friend_extract,
     "friend-sync": cmd_friend_sync,
     "benchmark": cmd_benchmark,

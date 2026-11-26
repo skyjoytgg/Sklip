@@ -3,3 +3,11 @@ opencv-python>=4.9
 faster-whisper>=1.0
 pytest>=8
 comtypes>=1.4; sys_platform == "win32"
+# Lecture du chat du jeu (reconnaissance de texte intégrée à Windows)
+winrt-runtime; sys_platform == "win32"
+winrt-Windows.Media.Ocr; sys_platform == "win32"
+winrt-Windows.Graphics.Imaging; sys_platform == "win32"
+winrt-Windows.Storage.Streams; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"
+winrt-Windows.Foundation.Collections; sys_platform == "win32"
+winrt-Windows.Globalization; sys_platform == "win32"

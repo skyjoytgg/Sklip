@@ -45,6 +45,7 @@ function makeClip(c) {
     friend: c.friend || null,    // réaction d'un pote : { id, name, file, offset, duration, mode, pos, cutT, cutDur }
     voices: c.voices || [],      // répliques des coéquipiers : [{ agent, name, start, end, text, on, auto }]
     chat: c.chat || [],          // bulles du chat : [{ t, user, text, color, badges, start, end, auto }] (temps du stream)
+    gameChat: c.gameChat || null, // messages du chat du jeu lus dans l'image : null = pas encore lus ; [{ t, user, text, team }]
   };
 }
 
@@ -199,6 +200,7 @@ function splitClip(p, id, at) {
     moments: c.moments.filter((m) => side(m.t) === k),
     voices: (c.voices || []).filter((v) => side(v.start) === k),
     chat: (c.chat || []).filter((m) => side(m.start != null ? m.start : m.t) === k),
+    gameChat: c.gameChat ? c.gameChat.filter((m) => side(m.t) === k) : null,
     subs: c.subs ? c.subs.filter((l) => side(l.start) === k) : null,
     friend: c.friend && side(c.friend.offset) === k ? c.friend : null,
   });
@@ -389,6 +391,17 @@ function chatNear(chat, c, lookback = CHAT_LOOKBACK) {
     .map((m) => ({ ...m, text: cleanChatText(m.text) })).sort((a, b) => b.t - a.t);
 }
 
+// Chat du jeu (Valorant) : couleur du pseudo comme dans le jeu, bleu allié / rouge ennemi.
+const GAME_CHAT_COLORS = { ally: '#5ECBEF', enemy: '#FF4655' };
+const GAME_CHAT_LOOKBACK = 10;
+const GAME_CHAT_SHOW = 3;        // s : durée d'affichage d'un message du chat du jeu
+
+/** Messages du chat du jeu d'un clip, au format des messages Twitch (pour la même liste et la même bulle). */
+function gameChatNear(c, lookback = GAME_CHAT_LOOKBACK) {
+  return (c.gameChat || []).filter((m) => m.t >= c.start - lookback && m.t <= c.end)
+    .map((m) => ({ ...m, color: GAME_CHAT_COLORS[m.team] || null, badges: [], game: true })).sort((a, b) => b.t - a.t);
+}
+
 /** Temps de lecture d'un message (s) : de 2,5 à 7 s selon sa longueur. */
 function chatReadTime(text) {
   const words = String(text || '').split(/\s+/).filter(Boolean).length;
@@ -402,7 +415,7 @@ function toggleChat(p, id, m) {
   const c = p.clips.find((x) => x.id === id);
   if (!c) return p;
   if (isChatShown(c, m)) return updateClip(p, id, { chat: c.chat.filter((b) => !sameMsg(b, m)) });
-  const dur = chatReadTime(m.text);
+  const dur = m.game ? GAME_CHAT_SHOW : chatReadTime(m.text);       // chat du jeu : 3 s (Sky)
   let start = Math.max(m.t, c.start) + 0.2;
   if (start > c.end - 1.5) start = c.start + 0.3;
   for (const o of [...(c.chat || [])].sort((x, y) => x.start - y.start)) {   // pas deux bulles en même temps
@@ -594,7 +607,7 @@ module.exports = {
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
   momentWindow, splitClip, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
-  chatNear, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
+  chatNear, gameChatNear, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
   linesFromWords, lineText, setClipWords, setLineText, setLineOn, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

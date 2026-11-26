@@ -14,7 +14,7 @@ if exist .venv\Scripts\python.exe (
 %PY% -m PyInstaller --noconfirm --onedir --console --name sklip-engine ^
   --add-data "sklip_engine\fonts;sklip_engine\fonts" ^
   --add-data "sklip_engine\assets;sklip_engine\assets" ^
-  --collect-all faster_whisper --collect-all ctranslate2 ^
+  --collect-all faster_whisper --collect-all ctranslate2 --collect-all winrt ^
   --exclude-module scipy --exclude-module hf_xet --exclude-module onnxruntime.transformers ^
   run_engine.py || exit /b 1
 rem OpenCV sert seulement à analyser des images : sa DLL de lecture vidéo (40 Mo) n'est jamais utilisée

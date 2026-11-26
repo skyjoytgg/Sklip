@@ -21,6 +21,12 @@ const mock = (() => {
       return settings;
     },
     engine: async (command, params) => {
+      if (command === 'game-chat') {   // Aperçu : faux messages du chat du jeu
+        await new Promise((r) => setTimeout(r, 900));
+        return { clips: Object.fromEntries(params.clips.map((c, i) => [c.id, i ? [] : [
+          { t: c.start + 2, user: 'tuffboy', text: 'pd', team: 'enemy', scope: 'Tout' },
+          { t: c.start + 6, user: 'MaxTesLa', text: 'nice one', team: 'ally', scope: 'Équipe' }]])) };
+      }
       if (command === 'transcribe') {   // Aperçu : faux sous-titres
         await new Promise((r) => setTimeout(r, 600));
         return { clips: Object.fromEntries(params.clips.map((c) => [c.id, [

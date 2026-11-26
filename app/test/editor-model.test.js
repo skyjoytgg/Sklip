@@ -281,3 +281,24 @@ test('sous-titres : décocher une ligne la cache (aperçu et export), le texte e
   p = m.setLineOn(p, id, null, true);
   assert.strictEqual(m.clipWordsForRender(p.clips[0]).length, 2);
 });
+
+test('chat du jeu : proposé comme le chat Twitch, couleur de l’équipe, coupé avec le clip', () => {
+  let p = m.createProject({ clips: [{ start: 100, end: 130 }] });
+  assert.strictEqual(p.clips[0].gameChat, null);                                   // pas encore lu
+  p = m.updateClip(p, p.clips[0].id, { gameChat: [
+    { t: 85, user: 'loin', text: 'trop tôt', team: 'enemy' },
+    { t: 105, user: 'tuffboy', text: 'pd', team: 'enemy' }, { t: 120, user: 'MaxTesLa', text: 'gg', team: 'ally' }] });
+  const near = m.gameChatNear(p.clips[0]);
+  assert.deepStrictEqual(near.map((x) => [x.user, x.color]), [['MaxTesLa', '#5ECBEF'], ['tuffboy', '#FF4655']]);
+  p = m.toggleChat(p, p.clips[0].id, near[1]);                                     // bulle comme un message Twitch
+  assert.strictEqual(p.clips[0].chat[0].color, '#FF4655');
+  assert.strictEqual(p.clips[0].chat[0].end - p.clips[0].chat[0].start, 3);          // affiché 3 s
+  p = m.splitClip(p, p.clips[0].id, 115);
+  assert.deepStrictEqual(p.clips.map((c) => c.gameChat.map((x) => x.user)), [['loin', 'tuffboy'], ['MaxTesLa']]);
+});
+
+test('chat du jeu : un montage enregistré avant (clips sans gameChat) n’a rien de lu', () => {
+  const old = { start: 100, end: 120 };                         // clip d'un ancien montage-*.json
+  assert.ok(old.gameChat == null);
+  assert.deepStrictEqual(m.gameChatNear(old), []);
+});

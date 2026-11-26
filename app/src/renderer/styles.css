@@ -404,3 +404,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .col-split { position: absolute; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 5; }
 .col-split:hover, body.resizing .col-split { background: #9146ff55; }
 body.resizing { cursor: col-resize; user-select: none; }
+
+/* Messages du chat du jeu dans la liste */
+.gtag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-right: 6px; font-weight: 600; }
+.gtag.ally { background: #5ECBEF22; color: #5ECBEF; }
+.gtag.enemy { background: #FF465522; color: #FF4655; }

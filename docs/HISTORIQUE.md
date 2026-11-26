@@ -654,3 +654,11 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   (v0.1.0 et v0.1.1 étaient en double ; la v0.1.1 n'était pas trouvée par la mise à jour auto).
 - **Clips viewers (v0.1.4)** : le viewer choisit son extrait jusqu'à ~90 s avant de créer le clip → la fenêtre
   remonte à ~1 min 25 avant (Sky : « 1 min à 1 min 30 »), ou découpe exactement le passage quand Twitch donne vod_offset.
+- **Chat du jeu (v0.1.5)** : les messages écrits dans le chat de Valorant (en bas à gauche de l'enregistrement ;
+  à droite c'est l'overlay du chat Twitch) sont lus avec la reconnaissance de texte de Windows
+  (`engine/sklip_engine/gamechat.py`, commande moteur `game-chat`, à la demande pour les clips du montage).
+  Pseudo bleu = allié, rouge = ennemi ; messages blancs (système) et pings « (Émission) » ignorés. Ils ne créent
+  jamais de clip : l'éditeur les propose dans « Messages du chat sur la vidéo » (étiquette « jeu · allié/ennemi »),
+  affichés 3 s par défaut. Vu sur le live du 26/11 : « (Tout) tuffboy : pd » (Omen ennemi) vers 19:50.
+  Tuto de l'éditeur v3 : étapes « Nouveau » (retirer un moment, barre rouge et coupes, panneaux élargissables,
+  sous-titres à cocher, chat du jeu). Sauvegarde du montage : automatique ~1 s après chaque changement.
