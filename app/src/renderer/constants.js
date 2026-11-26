@@ -13,7 +13,7 @@ export const MODES = {
   manual: 'Manuel',
 };
 
-export const DURATIONS = [30, 60, 120, 180, 300];      // secondes ; 60 par défaut
+export const DURATIONS = [30, 60, 120, 180, 300];      // secondes ; 180 (3 min) par défaut
 export const durationLabel = (s) => (s < 60 ? `${s} s` : s % 60 ? `${Math.floor(s / 60)} min ${s % 60}` : `${s / 60} min`);
 
 export const FORMATS = [['9x16', '9:16 (TikTok, Shorts, Reels)'], ['16x9', '16:9 (YouTube)']];

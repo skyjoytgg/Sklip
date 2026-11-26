@@ -50,15 +50,22 @@ test("vérification avant le live : rappel si l'enregistrement OBS n'est pas aut
   assert.match((await rec(false)).detail, /Démarrer l'enregistrement/);
 });
 
-test('réglages : durée des montages 1 min par défaut, l’ancien 30 s par défaut passe à 1 min une fois', () => {
+test('réglages : durée des montages 3 min par défaut, les anciens défauts (30 s, 1 min) passent à 3 min une fois', () => {
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const { Settings } = require('../src/main/settings');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sklip-set-'));
-  assert.strictEqual(new Settings(dir).get().targetDuration, 60);
-  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ targetDuration: 30 }));
-  const s = new Settings(dir);
-  assert.strictEqual(s.get().targetDuration, 60);
-  s.update({ targetDuration: 30 });                          // choisi exprès ensuite : gardé
+  const file = path.join(dir, 'settings.json');
+  assert.strictEqual(new Settings(dir).get().targetDuration, 180);
+  fs.writeFileSync(file, JSON.stringify({ targetDuration: 30 }));                       // avant la v0.1.1
+  assert.strictEqual(new Settings(dir).get().targetDuration, 180);
+  fs.writeFileSync(file, JSON.stringify({ targetDuration: 60, durationsV2: true }));    // v0.1.1 à v0.1.5
+  assert.strictEqual(new Settings(dir).get().targetDuration, 180);
+  fs.writeFileSync(file, JSON.stringify({ targetDuration: 30, durationsV2: true }));    // 30 s choisi exprès
   assert.strictEqual(new Settings(dir).get().targetDuration, 30);
+  fs.writeFileSync(file, JSON.stringify({ targetDuration: 120, durationsV2: true }));   // 2 min choisi : gardé
+  assert.strictEqual(new Settings(dir).get().targetDuration, 120);
+  fs.writeFileSync(file, JSON.stringify({ targetDuration: 60, durationsV2: true }));
+  const s2 = new Settings(dir); s2.update({ targetDuration: 60 });                     // 1 min choisi exprès ensuite : gardé
+  assert.strictEqual(new Settings(dir).get().targetDuration, 60);
   fs.rmSync(dir, { recursive: true, force: true });
 });

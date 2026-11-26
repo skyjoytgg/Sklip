@@ -6,7 +6,7 @@ let twitchState = { connected: false };
 const mock = (() => {
   let settings = {
     obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: true },
-    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 60, formats: ['9x16', '16x9'],
+    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 180, formats: ['9x16', '16x9'],
     audio: { captureEnabled: true, volumes: { game: 1, mic: 1, discord: 1, music: 0 } }, markerHotkey: 'F9', retentionDays: 7,
     cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, friends: [{ login: 'kamel', autoAccept: true }], firstRunDone: false, editorTourDone: false, pcTest: null,
   };

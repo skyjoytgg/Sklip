@@ -662,3 +662,6 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   affichés 3 s par défaut. Vu sur le live du 26/11 : « (Tout) tuffboy : pd » (Omen ennemi) vers 19:50.
   Tuto de l'éditeur v3 : étapes « Nouveau » (retirer un moment, barre rouge et coupes, panneaux élargissables,
   sous-titres à cocher, chat du jeu). Sauvegarde du montage : automatique ~1 s après chaque changement.
+- **Durée des montages 3 min par défaut (v0.1.6)** : Sky, 26/11 au soir. Migration une fois (`durationsV3`) :
+  les anciens défauts (1 min, ou 30 s d'avant la v0.1.1) passent à 3 min ; un choix fait exprès est gardé.
+  Sur le live du 26/11 : 7 clips pour Kills et Rires au lieu de 2.

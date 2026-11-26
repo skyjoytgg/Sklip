@@ -8,8 +8,9 @@ const DEFAULTS = {
   obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: true },   // enregistrement lancé avec le streaming
   analysisMode: 'end_of_stream',        // end_of_stream | live | manual
   themes: ['kills'],
-  targetDuration: 60,                    // 30 s à 5 min (secondes)
-  durationsV2: true,                     // réglage passé à « 30 s à 5 min » (30 s n'est plus le défaut)
+  targetDuration: 180,                   // 30 s à 5 min (secondes) ; 3 min par défaut (Sky, 26/11)
+  durationsV2: true,
+  durationsV3: true,                     // défaut passé de 1 min à 3 min                     // réglage passé à « 30 s à 5 min » (30 s n'est plus le défaut)
   formats: ['9x16'],
   // Webcam : trouvée toute seule dans chaque stream (auto) ; sinon ce rectangle (réglé à la main). Défaut : position de Sky.
   cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222, enabled: true, auto: true },
@@ -50,7 +51,10 @@ class Settings {
       const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       this.data = deepMerge(DEFAULTS, saved);
       // Avant le 26/11, 30 s était le défaut : les clips sont maintenant plus larges, on passe à 1 min (une seule fois).
-      if (!saved.durationsV2 && (saved.targetDuration == null || saved.targetDuration === 30)) this.data.targetDuration = 60;
+      // Puis le 26/11 au soir, Sky : « la durée de base 3 minutes au lieu de 1 min » (une seule fois aussi ;
+      // un 30 s choisi exprès après la v0.1.1 est gardé).
+      const d = saved.targetDuration;
+      if (!saved.durationsV3 && (d == null || d === 60 || (!saved.durationsV2 && d === 30))) this.data.targetDuration = 180;
     } catch { /* premier lancement */ }
   }
   get() { return this.data; }
