@@ -601,3 +601,28 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
 - Limite : sur une VOD, toutes les voix sont mélangées dans le son du stream → la phrase attribuée peut être un peu
   fausse (c'est pour ça qu'elle est modifiable). En live avec les pistes séparées de Sklip, c'est plus propre.
 - Reste : B (transcrire la piste Discord, proposer les phrases, Sky choisit l'agent), puis A (empreintes vocales).
+
+### Idées de Sky pour plus tard (26/11/2026)
+- Durée des montages : pouvoir **choisir plusieurs durées** à la fois (ex. 15 s + 30 s + 60 s) au lieu d'une seule
+  cible. Sky : « on le fera après ».
+- Empêcher Sklip de s'ouvrir deux fois (raccourci du bureau `lancer-sklip.vbs` créé le 26/11) : proposé, pas encore fait.
+- Publication (décision de Sky, 26/11) : **pas de connexion TikTok / YouTube pour l'instant**. Sklip prépare des
+  montages prêts à poster (TikTok/Shorts 9:16 courts + **vidéo YouTube 16:9 d'environ 10 min** avec toutes les
+  options), et le streamer les publie lui-même depuis son PC. Connexions directes plus tard (YouTube : vidéos privées
+  tant que Google n'a pas vérifié l'appli ; TikTok : « moi seulement » et 5 comptes/jour sans validation).
+
+### 14 octies. Avant la première version publique (26/11/2026)
+- Enregistrement OBS lancé tout seul avec le streaming **par défaut** (tuto de départ + ligne « Enregistrement »
+  dans « Avant le live »). Raccourci « Sklip » sur le bureau (`lancer-sklip.vbs`, version de développement).
+- Discord (B) côté moteur : la piste Discord est transcrite dans chaque clip, les phrases sont proposées dans
+  « Ce que disent tes coéquipiers » avec « Choisis l'agent… » (pas encore testé sur un vrai live).
+- Vidéo YouTube 8–15 min : choix de Sky 1A (Just Chatting du début en premier, de la fin en dernier), 2C (écran
+  « ROUND 7 · ACE » + swoosh), 3C, 4AB (description + chapitres + miniature), 5 = court « abonne-toi ».
+  **Commencée, pas finie, pas dans la version 0.1.0** : brouillon du moteur gardé hors git dans
+  `.claude/wip-video-youtube/` (youtube.py + render/analyze/moments/__main__ modifiés). Reste : appli (thème,
+  16:9 par défaut, options cochées), tests, rendu regardé.
+- Dépôt GitHub passé en public par Sky (pour que sa pote télécharge l'installeur et ait les mises à jour).
+  `scripts/write-config.js` garde maintenant le config.json du dépôt (avant, il effaçait `relayUrl`),
+  publication en « release » (pas en brouillon). Serveur des réactions pas encore en ligne (`relayUrl` vide).
+- Piège trouvé : les commandes lancées depuis l'appli Claude écrivent dans une copie privée de %APPDATA% ;
+  le Python 3.13 de uv (utilisé par `engine\.venv`) n'existait que là → copié dans le vrai `%APPDATA%\uv\python`.

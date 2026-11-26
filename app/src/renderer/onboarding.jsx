@@ -156,6 +156,10 @@ export function Onboarding({ settings, setSettings, obs, onDone }) {
           <div className="field"><label>Mot de passe obs-websocket</label>
             <input type="password" defaultValue={settings.obs.password} onBlur={(e) => set({ obs: { password: e.target.value } })} /></div>
           <div className="pill"><span className={'dot' + (obs.connected ? ' ok' : '')} />OBS {obs.connected ? 'connecté ✔' : 'pas encore connecté (OBS doit être ouvert)'}</div>
+          <label className="check" style={{ marginTop: 14 }}>
+            <input type="checkbox" checked={settings.obs.autoRecord} onChange={(e) => set({ obs: { autoRecord: e.target.checked } })} />
+            <span><b>Enregistrer tout seul pendant le live</b> (conseillé) : tu cliques juste « Démarrer le streaming » dans OBS,
+              Sklip lance l'enregistrement et l'arrête à la fin. Rien d'autre à faire.</span></label>
           <div style={{ marginTop: 16 }}><TwitchBlock /></div>
         </>),
     },

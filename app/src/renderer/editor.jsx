@@ -3,7 +3,7 @@ import { CamEditor, CamCrop, camStatus } from './cam-editor.jsx';
 import * as M from './editor-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
-import { Tour, EDITOR_TOUR } from './tour.jsx';
+import { Tour, EDITOR_TOUR, tourSteps } from './tour.jsx';
 import { THEMES } from './constants.js';
 import { chatBubbleImage, userColor } from './chat-bubble.js';
 import { voiceTextImage } from './voice-card.js';
@@ -148,10 +148,10 @@ function VoicePicker({ project, setProject, clip, agents, now }) {
               const a = agents.find((x) => x.uuid === e.target.value);
               setProject(M.setVoice(project, clip.id, i, { agent: a ? a.uuid : null, name: a ? a.name : '?' }));
             }}>
-              {!agents.some((a) => a.uuid === v.agent) && <option value={v.agent || ''}>{v.name || 'Agent ?'}</option>}
+              {!agents.some((a) => a.uuid === v.agent) && <option value={v.agent || ''}>{v.agent ? v.name || 'Agent ?' : "Choisis l'agent…"}</option>}
               {agents.map((a) => <option key={a.uuid} value={a.uuid}>{a.name}</option>)}
             </select>
-            <span className="note">{M.fmtTime(v.start)}{v.auto ? ' · entendu' : ''}</span>
+            <span className="note">{M.fmtTime(v.start)}{v.src === 'discord' ? ' · Discord' : v.auto ? ' · entendu' : ''}</span>
             <button className="link" onClick={() => setProject(M.removeVoice(project, clip.id, i))}>Retirer</button>
           </div>
           <input className="voicetext" value={v.text} placeholder="Ce que dit l'agent…"
@@ -366,7 +366,7 @@ function Fader({ label, value, onChange, inherited }) {
 }
 
 // ---------- Éditeur ----------
-export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
+export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTourDone }) {
   const [project, setProject] = useState(() => initProject(session));
   // Sauvegarde automatique (1 s après la dernière modification) : rien n'est perdu en fermant l'éditeur.
   useEffect(() => {
@@ -653,12 +653,16 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
                 </div>
               ) : <div className="note">Aucun ami de confiance en chat partagé avec toi pendant ce clip.</div>}
               {friendMsg && <div className="note friendmsg">{friendMsg}</div>}
-              <div className="lbl">Ce que disent tes coéquipiers</div>
-              <VoicePicker project={project} setProject={setProject} clip={clip} agents={agents}
-                now={Math.round((clip.start + player.local) * 100) / 100} />
-              <div className="lbl">Messages du chat sur la vidéo</div>
-              <ChatPicker project={project} setProject={setProject} clip={clip} chat={session.chat || []}
-                now={Math.round((clip.start + player.local) * 100) / 100} />
+              <div data-tour="voices">
+                <div className="lbl">Ce que disent tes coéquipiers</div>
+                <VoicePicker project={project} setProject={setProject} clip={clip} agents={agents}
+                  now={Math.round((clip.start + player.local) * 100) / 100} />
+              </div>
+              <div data-tour="chat">
+                <div className="lbl">Messages du chat sur la vidéo</div>
+                <ChatPicker project={project} setProject={setProject} clip={clip} chat={session.chat || []}
+                  now={Math.round((clip.start + player.local) * 100) / 100} />
+              </div>
               <button className="btn ghost danger" style={{ marginTop: 14 }}
                 onClick={() => { setProject(M.removeClip(project, clip.id)); setSelected(null); }}>Retirer ce clip</button>
             </>
@@ -725,7 +729,7 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
       <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player}
         speech={session.speech} />
 
-      {showTour && <Tour steps={EDITOR_TOUR} onDone={onTourDone} />}
+      {showTour && tourSteps(EDITOR_TOUR, tourSeen).length > 0 && <Tour steps={tourSteps(EDITOR_TOUR, tourSeen)} onDone={onTourDone} />}
 
       {camOpen && (
         <CamEditor videoSrc={session.stream.video ? `file:///${session.stream.video}` : null}

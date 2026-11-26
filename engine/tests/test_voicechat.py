@@ -55,3 +55,16 @@ def test_le_streamer_n_est_pas_un_coequipier():
     spans = [{"agent": "neon", "start": 5, "end": 7}, {"agent": "viper", "start": 10, "end": 12}]
     assert [s["agent"] for s in drop_streamer(spans, [(4.8, 7.2), (30, 31)])] == ["viper"]
     assert drop_streamer(spans, []) == spans
+
+
+def test_discord_lines_and_attach():
+    from sklip_engine.voicechat import attach_discord, discord_lines
+    words = [{"start": 10.0, "end": 10.3, "text": "vas-y"}, {"start": 10.4, "end": 10.8, "text": "go"},
+             {"start": 10.9, "end": 11.2, "text": "go"}, {"start": 14.0, "end": 14.3, "text": "ok"}]
+    lines = discord_lines(words)
+    assert lines == [{"start": 10.0, "end": 11.2, "text": "vas-y go go"}]     # « ok » seul : trop court
+    clips = [{"start": 5.0, "end": 20.0, "voices": [{"agent": "a", "start": 12.0, "end": 13.0, "text": "x y"}]}]
+    attach_discord(clips, lambda a, b: words)
+    v = clips[0]["voices"]
+    assert [x["start"] for x in v] == [10.0, 12.0]                            # mêlées aux répliques du jeu, dans l'ordre
+    assert v[0]["agent"] is None and v[0]["src"] == "discord" and v[0]["on"] is False

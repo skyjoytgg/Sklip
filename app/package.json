@@ -57,7 +57,8 @@
       {
         "provider": "github",
         "owner": "skyjoytgg",
-        "repo": "sklip"
+        "repo": "sklip",
+        "releaseType": "release"
       }
     ]
   }

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const DEFAULTS = {
-  obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: false },
+  obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: true },   // enregistrement lancé avec le streaming
   analysisMode: 'end_of_stream',        // end_of_stream | live | manual
   themes: ['kills'],
   targetDuration: 30,                    // 15 à 60 s
@@ -27,6 +27,7 @@ const DEFAULTS = {
   libraryRoot: null,                     // par défaut : Documents/Sklip
   firstRunDone: false,                   // assistant de départ terminé (ou passé)
   editorTourDone: false,                 // bulles guidées de l'éditeur vues (ou passées)
+  editorTourVersion: 0,                  // version du tuto vue (nouvelles étapes montrées seules ensuite)
   pcTest: null,                          // dernier résultat du test du PC
   lastSessionFolder: null,               // dernier stream analysé (ouvert par « Montage »)
   friends: [],                           // amis de confiance (pseudos Twitch) : [{ login, autoAccept }]

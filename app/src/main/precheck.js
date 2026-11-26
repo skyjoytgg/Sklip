@@ -79,6 +79,11 @@ async function runPrecheck(d) {
   const marks = [d.hotkey && `touche ${d.hotkey}`, d.streamDeck && 'Stream Deck'].filter(Boolean);
   add('markers', 'Marqueurs', marks.length ? 'ok' : 'warn', marks.length ? `Prêts : ${marks.join(' et ')}.`
     : 'Ni raccourci ni Stream Deck disponibles : utilise le bouton de Sklip.');
+  if (s.obs) {
+    add('record', 'Enregistrement', s.obs.autoRecord ? 'ok' : 'warn', s.obs.autoRecord
+      ? 'Démarre tout seul avec le streaming, et s\'arrête à la fin.'
+      : "Pense à cliquer « Démarrer l'enregistrement » dans OBS (ou coche « Enregistrer tout seul » dans les Réglages).");
+  }
   add('analysis', 'Analyse', s.analysisMode === 'manual' ? 'warn' : 'ok', s.analysisMode === 'manual'
     ? "Mode manuel : rien ne sera analysé tout seul à la fin." : s.analysisMode === 'live' ? 'Pendant le live, puis à la fin.' : 'Automatique à la fin du live.');
   return out;

@@ -10,6 +10,10 @@ export const EDITOR_TOUR = [
     text: 'Regarde ton montage ici. Barre espace pour lire ou mettre en pause. Clique dans la timeline pour te placer à un endroit.' },
   { target: 'props', title: 'Le clip sélectionné',
     text: 'Choisis la mise en page en 9:16 (webcam en haut ou jeu seul), le son de ce clip, les sous-titres et les textes à l\'écran.' },
+  { target: 'voices', since: 2, title: 'Tes coéquipiers parlent',
+    text: "Quand un coéquipier parle dans le vocal du jeu, Sklip devine son agent et note sa phrase. Coche-la : l'agent arrive en grand sur la vidéo avec sa phrase façon BD. Tu peux changer l'agent ou corriger le texte. « + Faire parler un agent ici » pour en ajouter un toi-même (un pote sur Discord par exemple)." },
+  { target: 'chat', since: 2, title: 'Les messages du chat',
+    text: "Quand tu lis un message du chat à voix haute, Sklip le met tout seul sur la vidéo en bulle façon Twitch. Tu peux en cocher d'autres. Marche pour les lives enregistrés avec Sklip (Twitch connecté)." },
   { target: 'mixer', title: 'Le mixeur',
     text: 'Règle le son de tout le montage : jeu, micro, Discord, musique. La musique est coupée par défaut à cause des droits d\'auteur.' },
   { target: 'format', title: 'Format et durée',
@@ -18,9 +22,16 @@ export const EDITOR_TOUR = [
     text: 'Quand ça te plaît, clique « Exporter ». La vidéo arrive dans le dossier de ton stream, prête à poster. À toi de jouer !' },
 ];
 
+/** Version du tuto : les étapes `since` plus récentes que ce qu'a vu le streamer lui sont montrées seules. */
+export const TOUR_VERSION = 2;
+export function tourSteps(steps, seen) {
+  return seen ? steps.filter((s) => (s.since || 1) > seen).map((s) => ({ ...s, title: `Nouveau : ${s.title}` })) : steps;
+}
+
 function rectOf(target) {
   const el = document.querySelector(`[data-tour="${target}"]`);
   if (!el) return null;
+  el.scrollIntoView({ block: 'nearest' });            // zone dans un panneau qui défile (clip sélectionné)
   const r = el.getBoundingClientRect();
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }

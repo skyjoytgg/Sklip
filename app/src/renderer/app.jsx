@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
 import { Editor } from './editor.jsx';
+import { TOUR_VERSION } from './tour.jsx';
 import { THEMES, MODES } from './constants.js';
 import { TwitchBlock } from './twitch-block.jsx';
 import { Onboarding, PcTest } from './onboarding.jsx';
@@ -143,9 +144,10 @@ function Reglages({ settings, setSettings }) {
         <input type="password" defaultValue={settings.obs.password} onBlur={(e) => set({ obs: { password: e.target.value } })} /></div>
       <div className="field"><label>Tes scènes OBS</label>
         <SceneTypes settings={settings} set={set} /></div>
-      <div className="field"><label>Lancer l'enregistrement OBS au début du live</label>
+      <div className="field"><label>Enregistrer tout seul pendant le live</label>
         <div><input type="checkbox" checked={settings.obs.autoRecord} onChange={(e) => set({ obs: { autoRecord: e.target.checked } })} />
-          <div className="note">Appuie seulement sur « Démarrer l'enregistrement », avec tes réglages OBS.</div></div></div>
+          <div className="note">Quand tu cliques « Démarrer le streaming » dans OBS, Sklip appuie sur « Démarrer l'enregistrement »
+            (avec tes réglages OBS), et l'arrête à la fin du live. Un enregistrement lancé par toi n'est jamais arrêté.</div></div></div>
       <div className="field"><label>Déclenchement de l'analyse</label>
         <select value={settings.analysisMode} onChange={(e) => set({ analysisMode: e.target.value })}>
           {Object.entries(MODES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
@@ -226,8 +228,9 @@ function App() {
         {page === 'montage' && !session && <NoSession settings={settings} openSession={openSession} setPage={setPage} />}
         {page === 'montage' && session && <Editor key={session.stream.folder + session.theme} session={session} onBack={() => setPage('accueil')}
           onTheme={(th) => openSession(session.folderKey, th)}
-          showTour={!settings.editorTourDone}
-          onTourDone={async () => setSettings(await api.updateSettings({ editorTourDone: true }))} />}
+          showTour={!settings.editorTourDone || (settings.editorTourVersion || 1) < TOUR_VERSION}
+          tourSeen={settings.editorTourDone ? settings.editorTourVersion || 1 : 0}
+          onTourDone={async () => setSettings(await api.updateSettings({ editorTourDone: true, editorTourVersion: TOUR_VERSION }))} />}
         {ready && page !== 'montage' && (
           <div className="ready">🎬 <b>Tes montages sont prêts</b> — {ready.title} ({ready.stats?.kills ?? 0} kills)
             <button className="btn sm" onClick={() => { openSession(ready.folder); setReady(null); }}>Ouvrir l'éditeur</button>

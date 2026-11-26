@@ -164,3 +164,39 @@ def attach_voices(clips: list[dict], video: str, agents_dir: str | None, transcr
             done[key] = [{**ln, "name": names.get(ln["agent"], "?"), "on": False, "auto": True} for ln in lines]
         if done[key]:
             c["voices"] = [dict(v) for v in done[key]]
+
+
+# ---------- Discord : Sklip propose les phrases, le streamer choisit l'agent ----------
+def discord_lines(words: list[dict]) -> list[dict]:
+    """Mots de la piste Discord (temps de la vidéo) → phrases [{start, end, text}] (coupées sur les silences)."""
+    lines: list[dict] = []
+    for w in sorted(words, key=lambda w: w["start"]):
+        t = w["text"].strip()
+        if not t:
+            continue
+        last = lines[-1] if lines else None
+        if last and w["start"] - last["end"] <= PHRASE_GAP:
+            last["end"] = round(w["end"], 2)
+            last["text"] += " " + t
+        else:
+            lines.append({"start": round(w["start"], 2), "end": round(w["end"], 2), "text": t})
+    return [ln for ln in lines if len(ln["text"].split()) >= MIN_WORDS]
+
+
+def attach_discord(clips: list[dict], transcribe_clip, progress=None) -> None:
+    """Ajoute aux clip["voices"] ce que disent les potes sur Discord (agent à choisir dans l'éditeur).
+    transcribe_clip(start, end) → mots de la piste Discord (temps de la vidéo)."""
+    done: dict = {}
+    for n, c in enumerate(clips):
+        if progress:
+            progress(n / max(1, len(clips)))
+        key = (round(c["start"], 2), round(c["end"], 2))
+        if key not in done:
+            try:
+                lines = discord_lines(transcribe_clip(c["start"], c["end"]))
+            except Exception:
+                lines = []
+            done[key] = [{**ln, "agent": None, "name": "Discord", "src": "discord", "on": False, "auto": True}
+                         for ln in lines]
+        if done[key]:
+            c["voices"] = sorted((c.get("voices") or []) + [dict(v) for v in done[key]], key=lambda v: v["start"])

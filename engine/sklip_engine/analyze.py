@@ -189,6 +189,19 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         game_clips = [c for th in clips for c in clips[th]]
         attach_voices(game_clips, video, agents_dir, game_words, speech=speech if tracks.get("mic") else None,
                       progress=lambda f: report(0.98, "Vocal du jeu : qui parle"))
+    # Discord : les phrases des potes sont proposées, le streamer choisit l'agent qui les dit (pas d'icône à lire).
+    discord_track = tracks.get("discord")
+    if discord_track:
+        from .overlays import transcribe as _trd
+        from .voicechat import attach_discord
+
+        def discord_words(a, b):
+            off = float(discord_track.get("offset", 0.0))
+            s0 = max(0.0, a - off)
+            return [{"start": s0 + off + w.start, "end": s0 + off + w.end, "text": w.text}
+                    for w in _trd(discord_track["path"], s0, b - off)]
+        attach_discord([c for th in clips for c in clips[th]], discord_words,
+                       progress=lambda f: report(0.98, "Discord : ce que disent tes potes"))
     # « Cam en grand » : centrée sur le visage du streamer (ce qui bouge dans la webcam).
     from .camfocus import add_focus
     report(0.98, "Cadrage des clips webcam")

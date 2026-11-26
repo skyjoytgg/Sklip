@@ -41,3 +41,11 @@ test('vérification avant le live : OBS fermé, micro muet, disque presque plein
   assert.strictEqual(full.find((r) => r.id === 'disk').level, 'error');
   assert.deepStrictEqual(verdict([{ level: 'ok' }]), { level: 'ok', text: 'Tout est prêt, bon live !' });
 });
+
+test("vérification avant le live : rappel si l'enregistrement OBS n'est pas automatique", async () => {
+  const rows = (auto) => runPrecheck(base({ settings: { ...base().settings, obs: { autoRecord: auto } } }));
+  const rec = async (auto) => (await rows(auto)).find((r) => r.id === 'record');
+  assert.strictEqual((await rec(true)).level, 'ok');
+  assert.strictEqual((await rec(false)).level, 'warn');
+  assert.match((await rec(false)).detail, /Démarrer l'enregistrement/);
+});
