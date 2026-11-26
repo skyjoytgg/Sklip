@@ -5,12 +5,17 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { ObsWatcher } = require('./obs-watcher');
 const { runEngine } = require('./engine-bridge');
-const { Settings } = require('./settings');
+const { Settings, themeTargets } = require('./settings');
 const { TwitchAuth, TwitchLive } = require('./twitch');
 const tm = require('./twitch-moments');
 const perf = require('./perf');
 const { Logger } = require('./logger');
 const pipeline = require('./pipeline');
+const { autoExport } = require('./auto-export');
+const style = require('../renderer/style-model');
+const { StyleStore } = require('./style-store');
+let styleStoreInst = null;
+const styleStore = () => (styleStoreInst = styleStoreInst || new StyleStore(path.join(app.getPath('userData'), 'style.json')));
 const { Agents, cropTransparent } = require('./agents');
 let agents = null;   // images des agents Valorant (vocal du jeu → agent en grand sur la vidéo)
 const agentsService = () => (agents = agents || new Agents(path.join(app.getPath('userData'), 'agents'),
@@ -146,7 +151,7 @@ async function runAnalysis(video, rec = {}) {
   try {
     const session = await engine('analyze', {
       video, root: libraryRoot(), title: rec.title === undefined && !rec.start ? path.parse(video).name : title,
-      themes: s.themes, target: s.targetDuration, extra_moments: extraMoments, extra_stats: extras.stats,
+      themes: s.themes, target: themeTargets(s), extra_moments: extraMoments, extra_stats: extras.stats,
       day: new Date(rec.start || Date.now()).toISOString().slice(0, 10), capture: rec.capture || undefined,
       record_started_at: rec.start ? rec.start / 1000 : undefined,
       partial_scans: rec.partialScans && rec.partialScans.length ? rec.partialScans : undefined,
@@ -163,7 +168,9 @@ async function runAnalysis(video, rec = {}) {
         { detail: `en ${Math.max(1, Math.round((Date.now() - t0) / 60000))} min · ${session.title}` });
     }
     send('analysis:done', { folder: session.folder, title: session.title, stats: session.stats });
-    if (Notification.isSupported() && (!win || !win.isFocused())) {
+    // Option « exporter tout seul à la fin du live » : les montages sont prêts à poster (retouchables ensuite).
+    const exporting = rec.start && s.autoExport ? runAutoExport(session) : null;
+    if (!exporting && Notification.isSupported() && (!win || !win.isFocused())) {
       new Notification({ title: 'Sklip : tes montages sont prêts', body: `${session.title} — ${session.stats.kills} kills, ${session.stats.multikills} multi-kills` }).show();
     }
     return { folder: session.folder };
@@ -174,6 +181,26 @@ async function runAnalysis(video, rec = {}) {
     analysisRunning = null;
     send('analysis:state', { running: false });
   }
+}
+
+/** Export automatique après l'analyse d'un live (en arrière-plan, ne bloque pas la fin de l'analyse). */
+function runAutoExport(session) {
+  const s = settings.get();
+  jadd('analysis', 'Export automatique des montages', { detail: `${(s.formats || []).join(' · ')}` });
+  return autoExport(session, {
+    engine, formats: s.formats, cam: s.cam, teaser: s.teaser !== false, log,
+    style: s.learnStyle !== false ? style.profile(styleStore().all()) : null,
+    channel: twitch && twitch.isConnected() ? twitch.tokens.user.login : '',
+    onStep: (i, n, j) => send('analysis:state', { running: true, video: session.video, title: `Export ${i + 1}/${n} : ${j.theme} ${j.fmt.replace('x', ':')}`, startedAt: Date.now(), fraction: i / n }),
+  }).then((done) => {
+    send('analysis:state', { running: false });
+    jadd('analysis', `${done.length} montage(s) exporté(s)`, { detail: session.title });
+    send('analysis:done', { folder: session.folder, title: session.title, stats: session.stats });
+    if (Notification.isSupported()) {
+      new Notification({ title: 'Sklip : tes montages sont exportés', body: `${done.length} vidéo(s) prête(s) à poster — ${session.title}` }).show();
+    }
+    return done;
+  }).catch((e) => { send('analysis:state', { running: false }); log.error('Export automatique :', e); });
 }
 
 /**
@@ -202,7 +229,7 @@ async function reanalyze(folder) {
     const agentsDir = await agentsService().ensureIcons().catch(() => null);
     const session = await engine('analyze', {
       video: old.video, root: libraryRoot(), folder, title: old.title,
-      themes: s.themes, target: s.targetDuration, extra_moments: extraMoments,
+      themes: s.themes, target: themeTargets(s), extra_moments: extraMoments,
       extra_stats: { peak_viewers: (old.stats || {}).peak_viewers, raids: (old.stats || {}).raids || [] },
       record_started_at: old.record_started_at || undefined,
       segments: (old.segments || []).some((x) => x.type) ? old.segments : undefined,
@@ -464,7 +491,21 @@ function listStreams() {
   });
 }
 
+// Une seule fenêtre Sklip : un 2e lancement (double-clic de trop, démarrage auto + clic) ramène la fenêtre déjà
+// ouverte au lieu d'en lancer une autre qui se disputerait OBS, la capture audio et les mêmes fichiers.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+}
+
 app.whenReady().then(() => {
+  if (!app.hasSingleInstanceLock()) return;
   settings = new Settings(app.getPath('userData'));
   log = new Logger(path.join(app.getPath('userData'), 'logs'));
   journal = new LiveJournal({ dir: path.join(app.getPath('userData'), 'journal'), log, onChange: (j) => send('journal:update', j) });
@@ -522,8 +563,15 @@ app.whenReady().then(() => {
   ipcMain.handle('project:save', (_e, folder, theme, project) => {
     if (!folder || !fs.existsSync(path.join(folder, 'session.json')) || !/^[\w-]+$/.test(theme)) return false;
     fs.writeFileSync(path.join(folder, `montage-${theme}.json`), JSON.stringify(project));
+    // Apprendre la façon de monter : ce montage retouché comparé à ce que Sklip avait proposé.
+    if (settings.get().learnStyle !== false && project && project.edited) {
+      try { styleStore().record(`${folder}|${theme}`, style.observe((loadSession(folder).clips || {})[theme] || [], project)); }
+      catch (e) { log.warn('Habitudes de montage :', e); }
+    }
     return true;
   });
+  ipcMain.handle('style:get', () => style.profile(styleStore().all()));
+  ipcMain.handle('style:reset', () => { styleStore().reset(); return style.profile({}); });
   ipcMain.handle('agents:list', async () => { await agentsService().ensureIcons().catch(() => null); return agentsService().list(); });
   ipcMain.handle('agents:portrait', (_e, uuid) => agentsService().portrait(uuid).catch(() => null));
   // Image posée sur la vidéo à l'export (bulle du chat…) : PNG dessiné par l'éditeur, rangé dans le dossier du stream.
@@ -537,7 +585,18 @@ app.whenReady().then(() => {
     fs.writeFileSync(file, Buffer.from(m[1], 'base64'));
     return file;
   });
-  ipcMain.handle('session:editor', (_e, folder, theme) => {
+  ipcMain.handle('session:editor', (_e, folder, theme) => editorFor(folder, theme));
+  // Menu « Durée » de l'éditeur (Sky 26/11) : refait les clips du thème pour 30 s / 1 min / 3 min / 5 min.
+  // L'ancien montage retouché n'est pas effacé : renommé montage-<thème>.avant-duree.json.
+  ipcMain.handle('session:retarget', async (_e, folder, theme, seconds) => {
+    const f = folder || settings.get().lastSessionFolder;
+    if (!f || !fs.existsSync(path.join(f, 'session.json'))) return null;
+    await engine('retarget', { folder: f, theme, target: Number(seconds) });
+    const saved = path.join(f, `montage-${theme}.json`);
+    if (fs.existsSync(saved)) fs.renameSync(saved, path.join(f, `montage-${theme}.avant-duree.json`));
+    return editorFor(f, theme);
+  });
+  function editorFor(folder, theme) {
     const f = folder || settings.get().lastSessionFolder;
     if (!f || !fs.existsSync(path.join(f, 'session.json'))) return null;
     const es = pipeline.editorSession(loadSession(f), theme, { cam: settings.get().cam });
@@ -545,8 +604,9 @@ app.whenReady().then(() => {
     try { es.reactions = JSON.parse(fs.readFileSync(path.join(f, 'reactions.json'), 'utf8')); } catch { es.reactions = []; }
     es.recordStartedAt = loadSession(f).record_started_at || null;
     try { es.project = JSON.parse(fs.readFileSync(path.join(f, `montage-${es.theme}.json`), 'utf8')); } catch { es.project = null; }
+    es.style = settings.get().learnStyle !== false ? style.profile(styleStore().all()) : null;
     return es;
-  });
+  }
   ipcMain.handle('dialog:openVideo', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'],
       filters: [{ name: 'Vidéos', extensions: ['mkv', 'mp4', 'mov', 'flv'] }] });

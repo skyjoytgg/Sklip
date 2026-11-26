@@ -1,7 +1,7 @@
 {
   "name": "sklip",
   "productName": "Sklip",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Montage automatique des moments forts de tes streams Twitch Valorant",
   "main": "src/main/main.js",
   "private": true,
@@ -29,6 +29,8 @@
       "src/main/**",
       "src/preload.js",
       "src/renderer/index.html",
+      "src/renderer/editor-model.js",
+      "src/renderer/style-model.js",
       "src/renderer/styles.css",
       "dist/renderer.js",
       "config.json"

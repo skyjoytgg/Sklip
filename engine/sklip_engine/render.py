@@ -78,6 +78,8 @@ class RenderClip:
     cam: Rect | None = None                       # webcam de la scène de ce clip (sinon celle du montage)
     focus: tuple | None = None                    # « Cam en grand » : centre du visage dans la webcam (x, y de 0 à 1)
     stickers: list = field(default_factory=list)  # images posées sur la vidéo (bulle du chat, agent…), voir sticker_filter
+    fade: float | None = None                     # fondu de ce clip (None = celui du montage). 0 : coupe franche
+                                                  # (coupes du teaser : un fondu au noir ferait une pause entre les kills)
 
 
 @dataclass
@@ -256,7 +258,10 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
                if len(labels) > 1 else labels[0] + "anull")
     else:  # tout est coupé
         mix = f"anullsrc=r=48000:cl=stereo,atrim=0:{dur:.3f}"
-    fade = spec.fade if dur > 2 * spec.fade else 0
+    vfade = spec.fade if clip.fade is None else clip.fade
+    fade = vfade if dur > 2 * vfade else 0
+    if not fade and clip.fade == 0 and dur > 0.1:
+        fade = 0.015                                 # coupe franche : fondu du son à peine audible, évite un « clic »
     afade = f",afade=t=in:st=0:d={fade},afade=t=out:st={dur - fade:.3f}:d={fade}" if fade else ""
     audio_parts.append(f"{mix},aformat=channel_layouts=stereo{afade}[a]")
 
@@ -272,7 +277,7 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
         if s.get("file") and os.path.exists(s["file"]) and float(s["end"]) > float(s["start"]):
             stickers.append((f"[{cmd.count('-i')}:v]", s))
             cmd += ["-loop", "1", "-framerate", str(spec.fps), "-t", f"{dur:.3f}", "-i", s["file"]]
-    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, spec.fade,
+    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, vfade,
                       post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
                       friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus, stickers=stickers)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",

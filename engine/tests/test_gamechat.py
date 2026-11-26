@@ -56,3 +56,21 @@ def test_pseudos_mal_lus_et_doublons_de_fin_de_partie():
     msgs = fix_names([{"user": "Waylay", "text": "yeah bro"}, {"user": "Waylay", "text": "ez"}, {"user": "Wa9(ay", "text": "lmao"},
                       {"user": "Pacha", "text": "ggs"}])
     assert [m["user"] for m in msgs] == ["Waylay", "Waylay", "Waylay", "Pacha"]
+
+
+def test_chat_lu_pendant_l_analyse_et_cache():
+    from sklip_engine.gamechat import chat_for_clips, spans_for
+    clips = [{"start": 100, "end": 130}, {"start": 135, "end": 150}, {"start": 400, "end": 420}]
+    assert spans_for(clips) == [[90.0, 150.0], [390.0, 420.0]]
+    calls = []
+
+    def between(a, b):
+        calls.append((a, b))
+        return [{"t": a + 1, "user": "tuffboy", "text": "pd", "team": "enemy", "scope": "Tout"}]
+    first = chat_for_clips("v", clips, between=between)
+    assert calls == [(90.0, 150.0), (390.0, 420.0)] and len(first["messages"]) == 2
+    calls.clear()
+    # Réanalyse : un clip rallongé → seule la partie nouvelle est relue.
+    again = chat_for_clips("v", clips + [{"start": 420, "end": 440}], cached=first, between=between)
+    assert calls == [(420.0, 440.0)]
+    assert len(again["messages"]) == 3

@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { Editor } from './editor.jsx';
 import { TOUR_VERSION } from './tour.jsx';
 import { THEMES, MODES, durationLabel } from './constants.js';
-import { DurationPicker } from './durations.jsx';
+import { ThemeDurations, durationsSummary } from './durations.jsx';
 import { TwitchBlock } from './twitch-block.jsx';
 import { Onboarding, PcTest } from './onboarding.jsx';
 import { FriendsBlock } from './friends-block.jsx';
@@ -76,7 +76,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
           <div className="note">{obs.recording ? 'Enregistrement en cours' : "Pas d'enregistrement en cours"}</div></div>
         <div className="card"><h3>Analyse</h3><div className="big">{MODES[settings.analysisMode]}</div>
           <div className="note">Modifiable dans les réglages</div></div>
-        <div className="card"><h3>Durée des montages</h3><div className="big">{durationLabel(settings.targetDuration)}</div>
+        <div className="card"><h3>Durée des montages</h3><div className="big sm">{durationsSummary(settings) || '—'}</div>
           <div className="note">{(settings.formats || []).join(' · ').replace('9x16', '9:16').replace('16x9', '16:9')}</div></div>
       </div>
       <h3 style={{ margin: '0 0 4px' }}>Thèmes à monter</h3>
@@ -134,6 +134,46 @@ function Historique({ openSession }) {
   );
 }
 
+// Habitudes de montage apprises (style-model.js) : ce que Sklip a retenu, et un bouton pour tout oublier.
+function LearnStyle({ settings, set }) {
+  const [prof, setProf] = useState(null);
+  useEffect(() => { if (api.styleGet) api.styleGet().then(setProf).catch(() => setProf(null)); }, []);
+  const lines = prof ? habitLines(prof) : [];
+  return (
+    <div>
+      <input type="checkbox" checked={settings.learnStyle !== false} onChange={(e) => set({ learnStyle: e.target.checked })} />
+      <div className="note">Sklip regarde ce que tu changes dans tes montages (début / fin des clips, clips retirés, mise en page,
+        teaser, volumes) et propose les suivants comme tu les aimes. Il faut 3 montages retouchés pour qu'une habitude compte.</div>
+      {prof && <div className="habits">
+        <div className="note">{prof.montages ? `${prof.montages} montage(s) retouché(s) observé(s)` : "Rien appris pour l'instant."}</div>
+        {lines.map((l) => <div key={l} className="habit">✨ {l}</div>)}
+        {prof.montages > 0 && <button className="btn ghost sm" onClick={async () => setProf(await api.styleReset())}>Oublier mes habitudes</button>}
+      </div>}
+    </div>);
+}
+
+const HABIT_TYPES = { kill: 'Kills', multikill: 'Multi-kills', ace: 'Aces', clutch: 'Clutchs', laugh: 'Rires', scream: 'Cris',
+  funny_death: 'Morts drôles', chat_spike: 'Pics de chat', raid: 'Raids', viewer_peak: 'Peaks', viewer_clip: 'Clips viewers',
+  marker: 'Marqueurs', victory: 'Victoires', defeat: 'Défaites', rr: 'RR' };
+const HABIT_LAYOUTS = { cam_top: 'cam en haut', cam_bottom: 'cam en bas', game_only: 'jeu seul', cam_full: 'cam en grand' };
+
+function habitLines(prof) {
+  const out = [];
+  for (const [k, t] of Object.entries(prof.types || {})) {
+    if (t.n < 3) continue;
+    const name = HABIT_TYPES[k] || k;
+    if (t.removedRate >= 0.7) { out.push(`${name} : tu les retires presque toujours`); continue; }
+    const bits = [];
+    if (Math.abs(t.dStart) >= 1) bits.push(`${Math.abs(Math.round(t.dStart))} s ${t.dStart < 0 ? 'de plus' : 'de moins'} avant`);
+    if (Math.abs(t.dEnd) >= 1) bits.push(`${Math.abs(Math.round(t.dEnd))} s ${t.dEnd > 0 ? 'de plus' : 'de moins'} après`);
+    if (t.layout) bits.push(HABIT_LAYOUTS[t.layout] || t.layout);
+    if (bits.length) out.push(`${name} : ${bits.join(', ')}`);
+  }
+  if (prof.teaser === false) out.push('Pas de teaser au début');
+  if (prof.subtitles === false) out.push('Pas de sous-titres');
+  return out;
+}
+
 function Reglages({ settings, setSettings }) {
   const set = async (patch) => setSettings(await api.updateSettings(patch));
   const [report, setReport] = useState(null);
@@ -170,8 +210,14 @@ function Reglages({ settings, setSettings }) {
       <div className="field"><label>Déclenchement de l'analyse</label>
         <select value={settings.analysisMode} onChange={(e) => set({ analysisMode: e.target.value })}>
           {Object.entries(MODES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
-      <div className="field"><label>Durée cible des montages</label>
-        <DurationPicker value={settings.targetDuration} onChange={(d) => set({ targetDuration: d })} /></div>
+      <div className="field"><label>Durée des montages (par thème)</label>
+        <ThemeDurations settings={settings} set={set} /></div>
+      <div className="field"><label>Apprendre de mes montages</label>
+        <LearnStyle settings={settings} set={set} /></div>
+      <div className="field"><label>Exporter tout seul à la fin du live</label>
+        <div><input type="checkbox" checked={!!settings.autoExport} onChange={(e) => set({ autoExport: e.target.checked })} />
+          <div className="note">Après l'analyse, Sklip exporte chaque montage (tous tes thèmes, tous tes formats) dans le dossier
+            du live : tu n'as plus qu'à poster. Tu peux toujours les ouvrir dans Montage pour les retoucher et réexporter.</div></div></div>
       <div className="field"><label>Capturer les pistes séparées (jeu, micro, Discord, musique)</label>
         <div><input type="checkbox" checked={settings.audio.captureEnabled} onChange={(e) => set({ audio: { captureEnabled: e.target.checked } })} />
           <div className="note">Enregistrés par Sklip à part, puis calés automatiquement sur ta vidéo OBS.</div></div></div>
@@ -244,8 +290,14 @@ function App() {
       <Sidebar page={page} setPage={setPage} obs={obs} analysis={analysis} />
       <main className={page === 'montage' ? 'full' : ''}>
         {page === 'montage' && !session && <NoSession settings={settings} openSession={openSession} setPage={setPage} />}
-        {page === 'montage' && session && <Editor key={session.stream.folder + session.theme} session={session} onBack={() => setPage('accueil')}
+        {page === 'montage' && session && <Editor key={`${session.stream.folder}|${session.theme}|${session.target}`} session={session} onBack={() => setPage('accueil')}
           onTheme={(th) => openSession(session.folderKey, th)}
+          onRetarget={async (secs) => {
+            try {
+              const s = await api.sessionRetarget(session.folderKey, session.theme, secs);
+              if (s) setSession({ ...s, folderKey: session.folderKey });
+            } catch (e) { window.alert(`Impossible de refaire le montage : ${e.message || e}`); }
+          }}
           showTour={!settings.editorTourDone || (settings.editorTourVersion || 1) < TOUR_VERSION}
           tourSeen={settings.editorTourDone ? settings.editorTourVersion || 1 : 0}
           onTourDone={async () => setSettings(await api.updateSettings({ editorTourDone: true, editorTourVersion: TOUR_VERSION }))} />}

@@ -59,7 +59,16 @@ def team_of(bgr: np.ndarray) -> str | None:
 _ENGINE = None
 
 
+_ENGINE_LOCK = __import__("threading").Lock()
+
+
 def _ocr_engine():
+    global _ENGINE
+    with _ENGINE_LOCK:
+        return _ENGINE or _make_engine()
+
+
+def _make_engine():
     global _ENGINE
     if _ENGINE is None:
         from winrt.windows.globalization import Language
@@ -150,8 +159,10 @@ def _frames(video: str, start: float, end: float, fps: float = FPS):
     W, H = 1920, 1080
     cw, ch = int(W * (x1 - x0)), int(H * (y1 - y0))
     cx, cy = int(W * x0), int(H * y0)
-    cmd = ["ffmpeg", "-v", "error", "-ss", f"{max(0.0, start):.2f}", "-i", video, "-t", f"{max(0.5, end - start):.2f}",
-           "-vf", f"fps={fps},scale={W}:{H},crop={cw}:{ch}:{cx}:{cy}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    # « -skip_frame noref » : FFmpeg ne décode pas les images dont aucune autre ne dépend (on n'en garde qu'une par
+    # seconde de toute façon) : lecture ~2× plus rapide.
+    cmd = ["ffmpeg", "-v", "error", "-skip_frame", "noref", "-ss", f"{max(0.0, start):.2f}", "-i", video,
+           "-t", f"{max(0.5, end - start):.2f}", "-vf", f"fps={fps},scale={W}:{H},crop={cw}:{ch}:{cx}:{cy}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     i, n = 0, cw * ch * 3
     try:
@@ -209,3 +220,59 @@ def fix_names(msgs: list[dict]) -> list[dict]:
         if best:
             m["user"] = best
     return msgs
+
+
+# ---------- Pendant l'analyse ----------
+# Lu une fois pour tous les clips proposés (fin de live : le PC ne streame plus), pour que l'éditeur n'attende pas.
+LOOKBACK = 10.0          # s avant le clip : un message écrit juste avant est encore affiché
+
+
+def spans_for(clips: list[dict], before: float = LOOKBACK, gap: float = 5.0) -> list[list[float]]:
+    """Passages à lire pour une liste de clips ({start, end}) : fusionnés quand ils se touchent."""
+    out: list[list[float]] = []
+    for a, b in sorted((max(0.0, float(c["start"]) - before), float(c["end"])) for c in clips):
+        if out and a <= out[-1][1] + gap:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [[round(a, 2), round(b, 2)] for a, b in out]
+
+
+def _missing(span, done):
+    """Parties de `span` qui ne sont dans aucun passage déjà lu."""
+    parts = [list(span)]
+    for a, b in done:
+        nxt = []
+        for x, y in parts:
+            if b <= x or a >= y:
+                nxt.append([x, y])
+                continue
+            if a > x:
+                nxt.append([x, a])
+            if b < y:
+                nxt.append([b, y])
+        parts = nxt
+    return [p for p in parts if p[1] - p[0] >= 1.0]
+
+
+def chat_for_clips(video: str, clips: list[dict], cached: dict | None = None, between=None, progress=None) -> dict:
+    """{spans, messages} : le chat du jeu de tous les passages des clips. `cached` (même forme) : déjà lu, on ne
+    relit que ce qui manque (réanalyse). Un passage à la fois : mesuré le 26/11, la lecture de texte de Windows
+    lancée sur plusieurs passages en même temps perd des messages (3 à 5 lus au lieu de 5)."""
+    between = between or (lambda a, b: chat_between(video, a, b))
+    done = [list(s) for s in (cached or {}).get("spans", [])]
+    msgs = list((cached or {}).get("messages", []))
+    todo = [p for s in spans_for(clips) for p in _missing(s, done)]
+    total = sum(b - a for a, b in todo) or 1.0
+    read = 0.0
+    for a, b in todo:
+        if progress:
+            progress(read / total)
+        try:
+            msgs += between(a, b)
+        except Exception:
+            continue                       # passage illisible : l'éditeur le relira à la demande
+        done.append([a, b])
+        read += b - a
+    msgs.sort(key=lambda m: m["t"])
+    return {"spans": sorted(done), "messages": msgs}

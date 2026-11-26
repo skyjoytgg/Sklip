@@ -69,3 +69,9 @@ test('réglages : durée des montages 3 min par défaut, les anciens défauts (3
   assert.strictEqual(new Settings(dir).get().targetDuration, 60);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('durée par thème : Kills 1 min, Best-of 5 min, envoyées au moteur pour les thèmes choisis', () => {
+  const { DEFAULTS, themeTargets } = require('../src/main/settings');
+  assert.deepStrictEqual(themeTargets({ ...DEFAULTS, themes: ['kills', 'bestof'] }), { kills: 60, bestof: 300 });
+  assert.deepStrictEqual(themeTargets({ themes: ['drole'], targetDuration: 180 }), { drole: 180 });   // ancien réglage
+});

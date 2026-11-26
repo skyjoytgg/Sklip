@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CamEditor, CamCrop, camStatus } from './cam-editor.jsx';
+import { BufferedVideo } from './buffered-video.jsx';
 import * as M from './editor-model.js';
+import * as S from './style-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
 import { Tour, EDITOR_TOUR, tourSteps } from './tour.jsx';
@@ -11,6 +13,8 @@ import { voiceTextImage } from './voice-card.js';
 const THEME_LABELS = Object.fromEntries(THEMES.map((t) => [t.id, t.label]));
 
 const info = (t) => MOMENT_INFO[t] || { label: t, color: '#8a8a99' };
+// Nom d'un moment dans la frise et la liste. Fins de partie classée (Sky 26/11) : « win », « loose », « rr+15 ».
+const momentLabel = (m) => (m.type === 'rr' && m.meta?.rr != null ? `rr${m.meta.rr > 0 ? '+' : ''}${m.meta.rr}` : info(m.type).label);
 const mainMoment = (clip) => [...(clip.moments || [])].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
 
 function initProject(session) {
@@ -19,22 +23,28 @@ function initProject(session) {
   const clips = session.clips.map((c) => ({
     ...c, moments: session.moments.filter((m) => m.t >= c.start && m.t <= c.end),
   }));
-  return M.attachReactions(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' }), session.reactions);
+  // Nouveau montage : ajusté aux habitudes du streamer (s'il en a), puis teaser au début, enlevable d'un clic.
+  const styled = S.applyStyle(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' }), session.style);
+  const p = { ...styled.project, learned: styled.changes };
+  return M.attachReactions(S.wantsTeaser(session.style) ? M.setTeaser(p) : p, session.reactions);
 }
 
 // ---------- Lecture (aperçu) ----------
+const EDITOR_DURATIONS = [30, 60, 180, 300];      // menu « Durée » à côté du thème (Sky 26/11)
+
 function usePlayer(project) {
   const [t, setT] = useState(0);          // temps dans le montage
   const [playing, setPlaying] = useState(false);
   const total = M.totalDuration(project);
   const last = useRef(null);
+  const stallRef = useRef(null);          // la vidéo de l'aperçu attend ses images : le chrono l'attend aussi
   useEffect(() => {
     if (!playing) return undefined;
     let raf;
     const step = (now) => {
       const dt = last.current != null ? (now - last.current) / 1000 : 0;
       last.current = now;
-      if (dt > 0) {
+      if (dt > 0 && !(stallRef.current && stallRef.current())) {
         setT((x) => {
           const nx = x + dt;
           if (nx >= total) { setPlaying(false); return total; }
@@ -51,7 +61,7 @@ function usePlayer(project) {
   let idx = offsets.findIndex((o, i) => t >= o && t < o + (project.clips[i].end - project.clips[i].start));
   if (idx < 0) idx = project.clips.length - 1;
   const local = idx >= 0 ? t - offsets[idx] : 0;
-  return { t, setT, playing, setPlaying: (v) => { if (v && t >= total) setT(0); setPlaying(v); }, idx, local, total };
+  return { t, setT, playing, setPlaying: (v) => { if (v && t >= total) setT(0); setPlaying(v); }, idx, local, total, stallRef };
 }
 
 /** La webcam du pote dans l'aperçu : incrustée dans un coin, ou en plein écran pendant le plan de coupe. */
@@ -171,28 +181,22 @@ function VoicePicker({ project, setProject, clip, agents, now }) {
 
 function Preview({ project, player, videoSrc, cam, camManual = false, portraits = {}, needPortrait = () => {} }) {
   const clip = project.clips[player.idx];
-  const videoRef = useRef(null);
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !clip) return;
-    const want = clip.start + player.local;
-    if (Math.abs(v.currentTime - want) > 0.3) v.currentTime = want;
-    if (player.playing && v.paused) v.play().catch(() => {});
-    if (!player.playing && !v.paused) v.pause();
-  });
+  // Débuts des clips suivants : préparés à l'avance, pour couper sans temps de chargement (teaser surtout).
+  const upcoming = project.clips.slice(player.idx + 1, player.idx + 3).map((c) => c.start);
   const vertical = project.fmt === '9x16';
   const layout = clip ? clip.layout : 'cam_top';
   const mm = clip && mainMoment(clip);
   const showText = project.texts.enabled && mm;
   const theCam = clip ? M.clipCam(clip, cam, camManual) : cam;
   const camBox = videoSrc && theCam && clip
-    ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 640} />
+    ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} upcoming={upcoming} boxRatio={1080 / 640} />
     : <div className="pv-cam">CAM</div>;
   const camFull = vertical && layout === 'cam_full';
   const gameBox = (
     <div className="pv-game" style={{ '--c': mm ? info(mm.type).color : '#333' }}>
-      {videoSrc ? <video ref={videoRef} src={videoSrc} muted={false} /> : (
-        <span>{clip ? `${mm ? info(mm.type).label : 'Clip'} · ${M.fmtTime(clip.start + player.local)}` : 'Aucun clip'}</span>
+      {videoSrc && clip ? <div className="bv"><BufferedVideo src={videoSrc} time={clip.start + player.local} playing={player.playing}
+        upcoming={upcoming} muted={false} stallRef={player.stallRef} /></div> : (
+        <span>{clip ? `${mm ? momentLabel(mm) : 'Clip'} · ${M.fmtTime(clip.start + player.local)}` : 'Aucun clip'}</span>
       )}
     </div>
   );
@@ -201,7 +205,7 @@ function Preview({ project, player, videoSrc, cam, camManual = false, portraits 
       <div className="pv-frame">
         {vertical && layout === 'cam_top' && camBox}
         {camFull && (videoSrc && theCam && clip
-          ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} boxRatio={1080 / 1920} full focus={clip.focus} />
+          ? <CamCrop src={videoSrc} cam={theCam} time={clip.start + player.local} playing={player.playing} upcoming={upcoming} boxRatio={1080 / 1920} full focus={clip.focus} />
           : <div className="pv-cam full">CAM EN GRAND</div>)}
         {camFull ? <div className="pv-hidden">{gameBox}</div> : gameBox}
         {vertical && layout === 'cam_bottom' && camBox}
@@ -228,6 +232,26 @@ function Preview({ project, player, videoSrc, cam, camManual = false, portraits 
       </div>
     </div>
   );
+}
+
+// ---------- Titre et hashtags proposés (à coller sur TikTok / YouTube) ----------
+function PostIdea({ post }) {
+  const [copied, setCopied] = useState('');
+  const text = `${post.title}
+${post.hashtags.join(' ')}`;
+  const copy = (what, s) => {
+    navigator.clipboard.writeText(s).then(() => { setCopied(what); setTimeout(() => setCopied(''), 1500); }).catch(() => {});
+  };
+  return (
+    <div className="post-idea">
+      <div className="note">Titre proposé</div>
+      <div className="pi-title">{post.title}</div>
+      <div className="pi-tags">{post.hashtags.join(' ')}</div>
+      <div className="row">
+        <button className="btn sm" onClick={() => copy('all', text)}>{copied === 'all' ? 'Copié ✓' : 'Copier titre + hashtags'}</button>
+        <button className="btn ghost sm" onClick={() => copy('title', post.title)}>{copied === 'title' ? 'Copié ✓' : 'Titre seul'}</button>
+      </div>
+    </div>);
 }
 
 // ---------- Timeline ----------
@@ -295,6 +319,34 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   const cutAt = under ? under.start + player.local : null;
   const canCut = under && cutAt - under.start >= 1 && under.end - cutAt >= 1;
   const cut = () => { if (canCut) { setProject(M.splitClip(project, under.id, cutAt)); setSelected(null); } };
+  // Après un zoom à la molette, garde sous la souris l'instant qui y était.
+  const anchor = useRef(null);
+  useLayoutEffect(() => {
+    if (anchor.current && ref.current) ref.current.scrollLeft = anchor.current.t * pps + 12 - anchor.current.x;
+    anchor.current = null;
+  }, [pps]);
+  // Molette : fait défiler la timeline de gauche à droite (Sky, 26/11) ; Ctrl + molette : zoom autour de la souris.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const t = (e.clientX - rect.left + el.scrollLeft - 12) / pps;
+        const next = Math.max(8, Math.min(80, Math.round(pps * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
+        anchor.current = { t, x: e.clientX - rect.left };
+        setPps(next);
+        return;
+      }
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!d || el.scrollWidth <= el.clientWidth) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaMode === 1 ? d * 40 : d;      // deltaMode 1 = en lignes
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [pps]);
   useEffect(() => {
     const onKey = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
@@ -314,7 +366,7 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   return (
     <div className="timeline-wrap" data-tour="timeline">
       <div className="tl-tools">
-        <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner · glisse la barre rouge pour revoir</span>
+        <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner · glisse la barre rouge pour revoir · molette pour défiler (Ctrl + molette : zoom)</span>
         <div className="row">
           <button className="btn ghost sm" disabled={!canCut} onClick={cut}
             title={canCut ? 'Coupe le clip en deux à la barre rouge (touche C)' : "Place la barre rouge dans un clip (à plus d'1 s des bords)"}>✂ Couper ici</button>
@@ -335,14 +387,15 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
               const cut = M.cutsSentence(c, speech);
               return (
                 <div key={c.id}
-                  className={'tl-clip' + (selected === c.id ? ' sel' : '') + (dragging ? ' dragging' : '')}
-                  style={{ left: offsets[i] * pps, width: (c.end - c.start) * pps, '--c': mm ? info(mm.type).color : '#666',
+                  className={'tl-clip' + (selected === c.id ? ' sel' : '') + (dragging ? ' dragging' : '') + (c.teaser ? ' teaser' : '')}
+                  title={c.teaser ? 'Teaser : un des meilleurs instants, rejoué en entier plus loin' : undefined}
+                  style={{ left: offsets[i] * pps, width: (c.end - c.start) * pps, '--c': c.teaser ? '#9146FF' : mm ? info(mm.type).color : '#666',
                     transform: dragging ? `translateX(${drag.dx}px)` : undefined }}
                   onPointerDown={(e) => onClipDown(e, c)}>
                   <div className={'h l' + (cut.start ? ' cuts' : '')} title={cut.start ? 'Coupe une phrase' : undefined}
                     onPointerDown={(e) => onTrimDown(e, c, 'start')} />
                   <div className="tl-label">
-                    <b>{mm ? info(mm.type).label : 'Clip'}{M.hasLiveMusic(project, c) && <span title="Musique du live gardée"> 🎵</span>}</b>
+                    <b>{c.teaser ? '⚡ Teaser' : mm ? momentLabel(mm) : 'Clip'}{M.hasLiveMusic(project, c) && <span title="Musique du live gardée"> 🎵</span>}</b>
                     <span>{(c.end - c.start).toFixed(1)} s</span>
                   </div>
                   <div className={'h r' + (cut.end ? ' cuts' : '')} title={cut.end ? 'Coupe une phrase' : undefined}
@@ -401,12 +454,17 @@ function Fader({ label, value, onChange, inherited }) {
 }
 
 // ---------- Éditeur ----------
-export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTourDone }) {
+export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSeen = 0, onTourDone }) {
   const [project, setProject] = useState(() => initProject(session));
+  // « Retouché » = le streamer a changé les clips, la mise en page, les textes ou les volumes (pas juste les
+  // sous-titres ou le chat lus tout seuls) : seuls ces montages servent à apprendre ses habitudes.
+  const firstLook = useRef(S.signature(project));
+  const [retargeting, setRetargeting] = useState(false);
   // Sauvegarde automatique (1 s après la dernière modification) : rien n'est perdu en fermant l'éditeur.
   useEffect(() => {
     if (!session.stream.folder || !window.sklip) return undefined;
-    const t = setTimeout(() => api.saveProject(session.stream.folder, session.theme, project), 1000);
+    const edited = project.edited || S.signature(project) !== firstLook.current;
+    const t = setTimeout(() => api.saveProject(session.stream.folder, session.theme, edited ? { ...project, edited } : project), 1000);
     return () => clearTimeout(t);
   }, [project]);
   const [selected, setSelected] = useState(project.clips[0]?.id || null);
@@ -454,6 +512,12 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
   const gamePending = useRef(new Set());
   useEffect(() => {
     if (!session.stream.video) return;
+    // Déjà lu pendant l'analyse (fin de live) : rien à attendre.
+    const known = project.clips.filter((c) => c.gameChat == null && M.gameChatFromSession(session.gameChat, c));
+    if (known.length) {
+      setProject((p) => known.reduce((acc, c) => M.updateClip(acc, c.id, { gameChat: M.gameChatFromSession(session.gameChat, c) }), p));
+      return;
+    }
     const missing = project.clips.filter((c) => c.gameChat == null && !gamePending.current.has(c.id));
     if (!missing.length) return;
     missing.forEach((c) => gamePending.current.add(c.id));
@@ -581,7 +645,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
       const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
         camManual: ['manual', 'project'].includes(camSource), stickers });
       const res = await api.engine('render', spec);
-      setExportState({ fraction: 1, message: 'Montage exporté', output: res.output });
+      setExportState({ fraction: 1, message: 'Montage exporté', output: res.output, post });
     } catch (e) {
       setExportState({ error: String(e.message || e) });
     }
@@ -598,7 +662,22 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
               {(session.themes || [session.theme]).length > 1 ? (
                 <select value={session.theme} onChange={(e) => onTheme && onTheme(e.target.value)} style={{ padding: '2px 6px' }}>
                   {session.themes.map((t) => <option key={t} value={t}>{THEME_LABELS[t] || t}</option>)}</select>
-              ) : ` ${THEME_LABELS[session.theme] || session.theme}`} · cible {durationLabel(session.target)}</div>
+              ) : ` ${THEME_LABELS[session.theme] || session.theme}`}
+              <span data-tour="duree">· Durée :</span>
+              {onRetarget ? (
+                <select value={session.target} disabled={retargeting} title="Sklip refait le montage de ce thème à cette durée"
+                  onChange={(e) => {
+                    const secs = Number(e.target.value);
+                    const edited = project.edited || S.signature(project) !== firstLook.current;
+                    if (edited && !window.confirm(`Sklip va refaire le montage pour ${durationLabel(secs)}. Tes retouches de ce montage seront remplacées (gardées dans le dossier du stream). Continuer ?`)) return;
+                    setRetargeting(true);
+                    Promise.resolve(onRetarget(secs)).finally(() => setRetargeting(false));
+                  }} style={{ padding: '2px 6px' }}>
+                  {[...new Set([...EDITOR_DURATIONS, session.target])].filter(Boolean).sort((a, b) => a - b)
+                    .map((d) => <option key={d} value={d}>{durationLabel(d)}</option>)}
+                </select>
+              ) : ` ${durationLabel(session.target)}`}
+              {retargeting && <span className="note">Sklip refait le montage…</span>}</div>
           </div>
         </div>
         <div className="row">
@@ -611,7 +690,14 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
             <input type="number" min="60" max="200" placeholder="—" value={project.bpm || ''} style={{ width: 70 }}
               onChange={(e) => setProject({ ...project, bpm: e.target.value ? Number(e.target.value) : null })} />
           </label>
-          <div className={'dur' + (total > 60 ? ' over' : '')}>{total.toFixed(1)} s</div></div>
+          <div className={'dur' + (total > (session.target || 60) + 15 ? ' over' : '')}
+            title={`Durée visée : ${durationLabel(session.target || 60)}`}>{total.toFixed(1)} s</div></div>
+          {project.learned && project.learned.length > 0 && (
+            <span className="learned" title={['Proposé selon tes habitudes :', ...project.learned].join(String.fromCharCode(10))}>✨ Selon tes habitudes</span>)}
+          <button className={'btn ghost sm' + (M.hasTeaser(project) ? ' on' : '')} data-tour="teaser"
+            title={M.hasTeaser(project) ? 'Enlever le teaser du début' : 'Mettre au début les meilleurs instants en coupes rapides (3 s)'}
+            onClick={() => setProject(M.setTeaser(project, !M.hasTeaser(project)))}>
+            ⚡ Teaser{M.hasTeaser(project) ? ' ✓' : ''}</button>
           <button className="btn ghost sm" title={`Webcam : ${camStatus(camSource)}`} onClick={() => setCamOpen(true)}>
             📷 Webcam{camSource === 'auto_failed' ? ' ⚠' : ''}</button>
           <button className="btn" data-tour="export" onClick={doExport} disabled={!project.clips.length}>Exporter</button>
@@ -640,7 +726,8 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
                   title={used ? 'Voir ce moment dans le montage' : 'Voir ce moment (sans l\'ajouter)'} onClick={open}>
                   <span className="mdot" style={{ background: info(m.type).color }} />
                   <div className="grow">
-                    <div>{info(m.type).label}{m.meta?.count ? ` ×${m.meta.count}` : ''}{m.meta?.channel ? ` · ${m.meta.channel}` : ''}</div>
+                    <div>{momentLabel(m)}{m.meta?.count ? ` ×${m.meta.count}` : ''}{m.meta?.channel ? ` · ${m.meta.channel}` : ''}
+                      {m.meta?.score ? ` ${m.meta.score}` : ''}</div>
                     <div className="note">{M.fmtTime(m.t)}</div>
                   </div>
                   {used ? <span className="note">dans le montage</span> : hidden ? (
@@ -670,7 +757,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
         <section className="stage" data-tour="preview">
           {peek && (
             <div className="peekbar">
-              <span>👁 Aperçu : <b>{info(peek.type).label}</b> à {M.fmtTime(peek.t)} <span className="note">(pas dans le montage)</span></span>
+              <span>👁 Aperçu : <b>{momentLabel(peek)}</b> à {M.fmtTime(peek.t)} <span className="note">(pas dans le montage)</span></span>
               <span className="row nowrap">
                 <button className="btn sm" onClick={() => {
                   const p = M.addMoment(project, peek);
@@ -880,6 +967,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
             <>
               <div>{exportState.message}</div>
               <div className="bar"><div style={{ width: `${Math.round((exportState.fraction || 0) * 100)}%` }} /></div>
+              {exportState.post && exportState.fraction >= 1 && <PostIdea post={exportState.post} />}
             </>)}
           <button className="link" onClick={() => setExportState(null)}>Fermer</button>
         </div>)}

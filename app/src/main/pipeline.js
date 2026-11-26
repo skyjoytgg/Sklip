@@ -66,11 +66,12 @@ function editorSession(session, theme, { cam, tracks } = {}) {
   const picked = pickCam(cam, session.cam_detected);
   return {
     stream: { title: session.title, duration: session.duration, video: session.video, folder: session.folder },
-    theme: th, themes: session.themes, target: session.target,
+    theme: th, themes: session.themes, target: (session.targets || {})[th] || session.target,
     moments: session.moments, clips: session.clips[th] || [],
     cam: picked.cam, camSource: picked.source, camDetected: session.cam_detected || null,
     tracks: tracks || session.tracks || null,
     speech: session.speech || [],
+    gameChat: session.game_chat || null,   // chat écrit du jeu déjà lu pendant l'analyse
     chat: session.chat || [],         // messages du chat (temps de la vidéo) : à afficher quand le streamer les lit     // quand le streamer parle : aimant et « Ajuster aux phrases » dans l'éditeur
   };
 }

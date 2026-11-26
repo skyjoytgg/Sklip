@@ -665,3 +665,26 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
 - **Durée des montages 3 min par défaut (v0.1.6)** : Sky, 26/11 au soir. Migration une fois (`durationsV3`) :
   les anciens défauts (1 min, ou 30 s d'avant la v0.1.1) passent à 3 min ; un choix fait exprès est gardé.
   Sur le live du 26/11 : 7 clips pour Kills et Rires au lieu de 2.
+- **v0.1.7 (26/11 au soir, idées de Sky)** :
+  - **Durée par thème** (Réglages et premier lancement) : Kills / Drôle / Communauté / Discussion 1 min, Best-of 5 min.
+    Dans l'éditeur, menu **« Durée »** à côté du thème (30 s, 1 min, 3 min, 5 min) : commande moteur `retarget`,
+    refait les clips du thème avec les moments déjà trouvés (0 à 7 s), l'ancien montage gardé en
+    `montage-<thème>.avant-duree.json`.
+  - **Teaser** : 3 s des meilleurs instants au début (multi-kill : ~1 s autour de chacun des 3 derniers kills), le clip
+    entier reste à sa place ; bouton « ⚡ Teaser ». Export : coupes franches (plus de fondu au noir de 0,12 s
+    entre les coupes, qui faisait une « pause » entre les kills). Aperçu : 3 lecteurs de la même vidéo, les clips
+    suivants préparés à l'avance (`buffered-video.jsx`) : chaque saut dans le live coûtait 0,04 à 0,55 s.
+  - **Fins de partie** (`endgame.py`) : grand écran VICTOIRE / DÉFAITE au centre (pas la bannière de round, plus petite
+    en haut avec « Équipe éliminée »…), puis « DÉTAILS DU RANG » « -25 SC » (masque des pixels colorés, plusieurs tailles,
+    vote). Live du 26/11 : 5 défaites, VICTOIRE 13-11, RR -25 / +16 / -21. Chaque partie classée (écran du rang lu)
+    ajoute en plus de la durée visée, dans l'ordre du live, aux montages Kills et Best-of : « win » / « loose » (~6 s)
+    puis « rr+16 » (~5 s) (noms demandés par Sky).
+  - **Titres et hashtags** proposés après l'export (« Copier titre + hashtags »).
+  - **Export automatique** à la fin du live (case, décochée par défaut ; sans bulles du chat ni répliques).
+  - **Apprendre de mes montages** (`style-model.js`) : après 3 montages retouchés, les suivants sont proposés comme le
+    streamer les retouche (bords des clips, types retirés, mise en page, teaser, volumes) ; « Oublier mes habitudes ».
+  - **Une seule fenêtre Sklip** ; **molette** pour défiler dans la timeline (Ctrl + molette : zoom) ; tuto v4.
+  - **Analyse plus rapide** : fins de partie lues en parallèle du score / de la webcam / de la voix (cachées
+    derrière, ~2 min 15 gagnées sur 3 h), lecture vidéo `-skip_frame noref` (chat du jeu 14 → 9 s). Lire plusieurs
+    passages du chat en même temps perdait des messages : non retenu. Pistes audio déjà en Opus.
+  - Reste : cases de style (« ensuite »), publication TikTok / YouTube (« pas encore »), rires / cris à tester en vrai live.

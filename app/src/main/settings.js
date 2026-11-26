@@ -9,9 +9,14 @@ const DEFAULTS = {
   analysisMode: 'end_of_stream',        // end_of_stream | live | manual
   themes: ['kills'],
   targetDuration: 180,                   // 30 s à 5 min (secondes) ; 3 min par défaut (Sky, 26/11)
-  durationsV2: true,
-  durationsV3: true,                     // défaut passé de 1 min à 3 min                     // réglage passé à « 30 s à 5 min » (30 s n'est plus le défaut)
+  durationsV2: true,                     // réglage passé à « 30 s à 5 min » (30 s n'est plus le défaut)
+  durationsV3: true,                     // défaut passé de 1 min à 3 min
+  // Durée par thème (Sky, 26/11) : TikTok Kills / Drôle courts, Best-of long. targetDuration reste en secours.
+  themeDurations: { kills: 60, drole: 60, communaute: 60, discussion: 60, bestof: 300 },
   formats: ['9x16'],
+  autoExport: false,                     // exporter tout seul les montages à la fin du live (option à cocher)
+  teaser: true,                          // teaser au début des nouveaux montages
+  learnStyle: true,                      // apprendre de mes montages (durées, clips retirés, mise en page…)
   // Webcam : trouvée toute seule dans chaque stream (auto) ; sinon ce rectangle (réglé à la main). Défaut : position de Sky.
   cam: { x: 0.026, y: 0.056, w: 0.224, h: 0.222, enabled: true, auto: true },
   audio: {
@@ -66,4 +71,10 @@ class Settings {
   }
 }
 
-module.exports = { Settings, DEFAULTS, deepMerge };
+/** Durées à envoyer au moteur : {thème: secondes} pour les thèmes choisis. */
+function themeTargets(s) {
+  const per = s.themeDurations || {};
+  return Object.fromEntries((s.themes || []).map((th) => [th, per[th] || s.targetDuration || 60]));
+}
+
+module.exports = { Settings, DEFAULTS, deepMerge, themeTargets };

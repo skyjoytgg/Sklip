@@ -179,3 +179,15 @@ def test_mixage_automatique_voix_devant(tmp_path):
     assert _band_db(str(out), 900, 3.3, 0.5) > music + 4
     m = _loudnorm_measure(str(out))
     assert abs(float(m["input_i"]) - (-14)) < 1.5
+
+
+def test_coupe_franche_sans_fondu_au_noir():
+    """Teaser (Sky, 26/11) : pas de fondu au noir entre les coupes, le son garde un fondu à peine audible."""
+    from sklip_engine.render import _clip_cmd
+    spec = MontageSpec(video="v.mkv", clips=[], output="o.mp4")
+    src = {"width": 1920, "height": 1080}
+    franc = " ".join(_clip_cmd(spec, RenderClip(10, 11, "game_only", fade=0), src, "p.mp4", "libx264"))
+    import re
+    assert not re.search(r"(?<!a)fade=t=in", franc) and "afade=t=in:st=0:d=0.015" in franc
+    normal = " ".join(_clip_cmd(spec, RenderClip(10, 15, "game_only"), src, "p.mp4", "libx264"))
+    assert "fade=t=in:st=0:d=0.12" in normal and "afade=t=in:st=0:d=0.12" in normal

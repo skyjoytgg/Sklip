@@ -302,3 +302,44 @@ test('chat du jeu : un montage enregistré avant (clips sans gameChat) n’a rie
   assert.ok(old.gameChat == null);
   assert.deepStrictEqual(m.gameChatNear(old), []);
 });
+
+test('teaser : les 3 kills du meilleur multi-kill en coupes rapides au début, le clip entier reste à sa place', () => {
+  const mk = { type: 'multikill', t: 1208.75, score: 80, meta: { count: 3, kills: [1183.75, 1202.75, 1208.75] } };
+  const p = m.createProject({ clips: [
+    { start: 100, end: 130, moments: [{ type: 'kill', t: 120, score: 40 }] },
+    { start: 1170, end: 1216, layout: 'cam_full', moments: [mk] },
+  ] });
+  const q = m.setTeaser(p);
+  assert.strictEqual(q.clips.length, 5);
+  const t = q.clips.slice(0, 3);
+  assert.ok(t.every((c) => c.teaser && c.layout === 'cam_full' && c.subs.length === 0));
+  assert.deepStrictEqual(t.map((c) => [c.start, c.end]), [[1183.05, 1184.05], [1202.05, 1203.05], [1208.05, 1209.05]]);
+  assert.ok(t.reduce((s, c) => s + c.end - c.start, 0) <= m.TEASER_MAX + 0.01);
+  assert.deepStrictEqual(q.clips.slice(3).map((c) => c.start), [100, 1170]);       // le montage d'avant, intact
+  assert.ok(m.hasTeaser(q));
+  // Export : coupes franches pour le teaser (un fondu au noir ferait une pause entre les kills), fondu normal après.
+  assert.deepStrictEqual(m.toRenderSpec(q, { video: 'v', output: 'o' }).clips.map((c) => c.fade), [0, 0, 0, undefined, undefined]);
+  const r = m.setTeaser(q, false);
+  assert.strictEqual(r.clips.length, 2);
+  assert.strictEqual(r.teaserOff, true);
+  // Un seul instant fort (un rire) : 3 s autour.
+  const s = m.setTeaser(m.createProject({ clips: [{ start: 50, end: 90, moments: [{ type: 'laugh', t: 70, score: 50 }] }] }));
+  assert.deepStrictEqual([s.clips[0].start, s.clips[0].end], [68, 71]);
+});
+
+test('fins de partie : fenêtre courte pour les RR, titre avec la victoire', () => {
+  assert.deepStrictEqual(m.momentWindow({ type: 'rr', t: 5255, meta: { rr: -25 } }), { start: 5253.5, end: 5258.5 });
+  assert.deepStrictEqual(m.momentWindow({ type: 'victory', t: 7627 }), { start: 7626, end: 7632 });     // « win » ~6 s
+  const p = m.createProject({ clips: [{ start: 7597, end: 7652, moments: [
+    { type: 'victory', t: 7627, meta: { score: '13-11' } }, { type: 'rr', t: 7646, meta: { rr: 16 } }] }] });
+  const post = m.suggestPost(p, { theme: 'kills' });
+  assert.strictEqual(post.title, 'VICTOIRE 13-11 🏆 (+16 RR)');
+  assert.ok(post.hashtags.includes('#ranked'));
+});
+
+test('chat du jeu lu pendant l\'analyse : repris pour les clips couverts, relu pour les autres', () => {
+  const gc = { spans: [[90, 150]], messages: [{ t: 95, user: 'tuffboy', text: 'pd', team: 'enemy' }, { t: 200, user: 'x', text: 'y', team: 'ally' }] };
+  assert.deepStrictEqual(m.gameChatFromSession(gc, { start: 100, end: 140 }).map((x) => x.text), ['pd']);
+  assert.strictEqual(m.gameChatFromSession(gc, { start: 100, end: 160 }), null);    // rallongé : pas tout lu
+  assert.strictEqual(m.gameChatFromSession(null, { start: 100, end: 140 }), null);
+});

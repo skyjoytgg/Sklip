@@ -6,7 +6,7 @@ let twitchState = { connected: false };
 const mock = (() => {
   let settings = {
     obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: true },
-    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 180, formats: ['9x16', '16x9'],
+    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 180, themeDurations: { kills: 60, drole: 60, communaute: 60, discussion: 60, bestof: 300 }, formats: ['9x16', '16x9'], autoExport: false,
     audio: { captureEnabled: true, volumes: { game: 1, mic: 1, discord: 1, music: 0 } }, markerHotkey: 'F9', retentionDays: 7,
     cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, friends: [{ login: 'kamel', autoAccept: true }], firstRunDone: false, editorTourDone: false, pcTest: null,
   };
@@ -63,8 +63,15 @@ const mock = (() => {
     reanalyze: async () => { await new Promise((r) => setTimeout(r, 1500)); return { folder: 'demo' }; },
     analysisStatus: async () => { try { const d = JSON.parse(localStorage.getItem('demoAnalysis') || 'null'); if (d) return { ...d, startedAt: Date.now() - d.ago * 1000 }; } catch { /* aperçu */ } return { running: false }; },
     editorSession: async (_f, theme) => ({ ...DEMO_SESSION, theme: theme || 'kills', themes: ['kills', 'drole'] }),
+    sessionRetarget: async (_f, theme, seconds) => {
+      await new Promise((r) => setTimeout(r, 600));
+      return { ...DEMO_SESSION, theme: theme || 'kills', themes: ['kills', 'drole'], target: seconds, project: null };
+    },
     onAnalysisState: noop, onAnalysisDone: noop,
     saveSticker: async (_f, name) => `demo/${name}.png`,
+    styleGet: async () => ({ montages: 4, types: { kill: { n: 9, kept: 8, removedRate: 0.11, dStart: -5, dEnd: 2, layout: 'cam_full' },
+      raid: { n: 4, kept: 0, removedRate: 1, dStart: 0, dEnd: 0, layout: null } }, teaser: true, subtitles: true, volumes: { mic: 1.2 } }),
+    styleReset: async () => ({ montages: 0, types: {} }),
     agentsList: async () => [{ uuid: '707eab51-4836-f488-046a-cda6bf494859', name: 'Viper' }, { uuid: 'a3bfb853-43b2-7238-a4f1-ad90e9e46bcc', name: 'Reyna' },
       { uuid: 'bb2a4828-46eb-8cd1-e765-15848195d751', name: 'Neon' }],
     agentPortrait: async (uuid) => (typeof window !== 'undefined' && window.__demoPortraits ? window.__demoPortraits[uuid] : null) || null,

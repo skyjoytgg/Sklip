@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import { SceneTypes } from './scene-types.jsx';
 import { THEMES, MODES, FORMATS } from './constants.js';
-import { DurationPicker } from './durations.jsx';
+import { ThemeDurations } from './durations.jsx';
 import { TwitchBlock } from './twitch-block.jsx';
 
 const VERDICTS = {
@@ -188,7 +188,10 @@ export function Onboarding({ settings, setSettings, obs, onDone }) {
               <button key={id} className={'chip' + (formats.includes(id) ? ' on' : '')} onClick={() => set({ formats: toggleIn(formats, id) })}>{label}</button>))}
           </div>
           <div className="lbl">Durée des montages</div>
-          <DurationPicker value={settings.targetDuration} onChange={(d) => set({ targetDuration: d })} />
+          <ThemeDurations settings={settings} set={set} />
+          <label className="row nowrap" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={!!settings.autoExport} onChange={(e) => set({ autoExport: e.target.checked })} />
+            <span>Exporter les montages tout seuls à la fin du live (prêts à poster)</span></label>
         </>),
     },
     {

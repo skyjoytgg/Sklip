@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { BufferedVideo } from './buffered-video.jsx';
 
 const SOURCES = {
   auto: 'trouvée automatiquement',
@@ -77,15 +78,7 @@ export function CamEditor({ videoSrc, time, cam, detected, onApply, onAuto, onNo
 }
 
 /** La vraie webcam dans l'aperçu (découpée dans la vidéo du stream), comme à l'export. */
-export function CamCrop({ src, cam, time, playing, boxRatio, full = false, focus = null }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const v = ref.current;
-    if (!v) return;
-    if (Math.abs(v.currentTime - time) > 0.3) v.currentTime = time;
-    if (playing && v.paused) v.play().catch(() => {});
-    if (!playing && !v.paused) v.pause();
-  });
+export function CamCrop({ src, cam, time, playing, boxRatio, full = false, focus = null, upcoming = [] }) {
   // Comme FFmpeg : la webcam remplit la case (on coupe ce qui dépasse), sans être déformée,
   // centrée sur le visage s'il est connu (« Cam en grand »), sinon au milieu.
   const camRatio = (cam.w * 16) / (cam.h * 9);
@@ -97,8 +90,8 @@ export function CamCrop({ src, cam, time, playing, boxRatio, full = false, focus
   return (
     <div className={'pv-cam real' + (full ? ' full' : '')}>
       <div className="cam-inner" style={inner}>
-        <video ref={ref} src={src} muted style={{ width: `${100 / cam.w}%`, height: `${100 / cam.h}%`,
-          left: `${(-cam.x / cam.w) * 100}%`, top: `${(-cam.y / cam.h) * 100}%` }} />
+        <BufferedVideo src={src} time={time} playing={playing} upcoming={upcoming} style={{ width: `${100 / cam.w}%`,
+          height: `${100 / cam.h}%`, left: `${(-cam.x / cam.w) * 100}%`, top: `${(-cam.y / cam.h) * 100}%` }} />
       </div>
     </div>
   );

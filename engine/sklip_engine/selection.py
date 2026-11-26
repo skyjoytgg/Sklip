@@ -72,6 +72,10 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
     - si un BPM est donné, chaque clip dure un nombre entier de temps (coupes sur le beat).
     """
     spec = THEMES.get(theme, {}) if isinstance(theme, str) else {}
+    ranked = ranked_endings(moments) if theme in RANKED_THEMES else []
+    if ranked:                     # fins de partie classée : ajoutées à part (voir plus bas), pas en double
+        taken = {id(m) for c in ranked for m in c.moments}
+        moments = [m for m in moments if id(m) not in taken]
     # Best-of : au moins sa propre cible (60 s), plus si le streamer a choisi des montages plus longs.
     target = min(MAX_TARGET, max(MIN_TARGET, float(target), float(spec.get("target", 0))))
     wanted = theme_types(theme)
@@ -88,7 +92,7 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
     chosen: list[Clip] = []
     total = 0.0
     if spec.get("spread"):
-        return finale_last(sorted(_spread(clips, target), key=lambda c: c.start))
+        return add_ranked(finale_last(sorted(_spread(clips, target), key=lambda c: c.start)), ranked, finale=True)
     for c in sorted(clips, key=lambda c: c.score, reverse=True):
         if total + c.duration <= target + 0.5:
             chosen.append(c)
@@ -100,7 +104,53 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
         best = max(clips, key=lambda c: c.score)
         best.start = max(best.start, best.end - target)
         chosen = [best]
-    return sorted(chosen, key=lambda c: c.start)
+    return add_ranked(sorted(chosen, key=lambda c: c.start), ranked)
+
+
+# ---------- Fins de partie classée (Sky 26/11) ----------
+# À chaque partie classée (écran du rang lu), deux clips courts ajoutés en plus de la durée visée, à leur place
+# dans l'ordre du live : « win » / « loose » (l'écran VICTOIRE / DÉFAITE, ~6 s) puis « rr+16 » (les points, ~5 s).
+RANKED_THEMES = ("kills", "bestof")
+RESULT_WINDOW = (1.0, 5.0)     # s avant / après le début de l'écran VICTOIRE / DÉFAITE
+RR_WINDOW = (1.5, 3.5)         # s avant / après la lecture des points (l'écran reste 1 à 3 s)
+RESULT_BEFORE_RR = 180.0       # s : l'écran du rang arrive dans les 3 min après la fin de partie
+
+
+def ranked_endings(moments: list[Moment]) -> list[Clip]:
+    """Clips des fins de partie classée : le résultat (s'il est trouvé) puis les points de rang."""
+    out: list[Clip] = []
+    results = [m for m in moments if m.type in ("victory", "defeat")]
+    for rr in sorted((m for m in moments if m.type == "rr"), key=lambda m: m.t):
+        want = (rr.meta or {}).get("result")
+        res = [m for m in results if 0 < rr.t - m.t <= RESULT_BEFORE_RR and (not want or m.type == want)]
+        if res:
+            r = max(res, key=lambda m: m.t)
+            out.append(Clip(max(0.0, r.t - RESULT_WINDOW[0]), r.t + RESULT_WINDOW[1], [r]))
+        a = max(rr.t - RR_WINDOW[0], out[-1].end if res else 0.0)
+        out.append(Clip(a, rr.t + RR_WINDOW[1], [rr]))
+    return out
+
+
+def add_ranked(chosen: list[Clip], ranked: list[Clip], finale: bool = False) -> list[Clip]:
+    """Place les clips de fin de partie dans l'ordre du live (avant le clip final du Best-of), sans chevauchement :
+    si un clip retenu couvre déjà l'instant, il n'est pas ajouté ; sinon il est raccourci pour ne pas déborder."""
+    out = list(chosen)
+    last = out.pop() if finale and out else None
+    for r in ranked:
+        t = r.moments[0].t
+        if any(c.start <= t <= c.end for c in out + ([last] if last else [])):
+            continue
+        for c in out:
+            if c.start < r.end and r.start < c.end:
+                if c.start >= t:
+                    r.end = min(r.end, c.start)
+                else:
+                    r.start = max(r.start, c.end)
+        if r.end - r.start < 1.0:
+            continue
+        i = next((k for k, c in enumerate(out) if c.start > r.start), len(out))
+        out.insert(i, r)
+    return out + ([last] if last else [])
 
 
 SPREAD_PENALTY = 0.75   # chaque clip déjà pris dans la même partie divise l'intérêt des suivants par 4/3

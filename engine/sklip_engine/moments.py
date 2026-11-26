@@ -12,6 +12,8 @@ COMBO_LEAD = 6.0                     # multi-kill / ace / clutch : s avant le pr
 VIEWER_CLIP = (85.0, 10.0)           # clip viewer : créé APRÈS l'action, extrait choisi jusqu'à ~90 s avant
 VIEWER_MAX = 100.0
 MAX_CLIP = 60.0
+# Fins de partie : la bannière arrive à la fin du dernier round ; l'écran du rang dure 1 à 3 s.
+TYPE_ROLL = {"victory": (10.0, 8.0), "defeat": (10.0, 8.0), "rr": (3.0, 6.0)}
 
 # Score de base par type (plus c'est haut, plus le moment est prioritaire).
 BASE_SCORES: dict[str, float] = {
@@ -27,6 +29,9 @@ BASE_SCORES: dict[str, float] = {
     "viewer_peak": 50,
     "viewer_clip": 60,
     "marker": 65,         # raccourci, !clip, Stream Deck
+    "victory": 60,        # « VICTOIRE » en fin de partie (meta.score « 13-11 »)
+    "defeat": 35,         # « DÉFAITE » en fin de partie : la réaction du streamer
+    "rr": 45,             # points de rang gagnés / perdus (meta.rr : +16, -25)
 }
 
 KNIFE_BONUS = 55         # kill au couteau : rare et classe, prioritaire (un kill au couteau seul passe devant un 3K)
@@ -35,7 +40,7 @@ MOMENT_TYPES = tuple(BASE_SCORES)
 
 # Thèmes fournis. Les thèmes perso sont des listes de types cochées par le streamer.
 THEMES: dict[str, dict] = {
-    "kills": {"label": "Kills / Aces / Clutchs", "types": ["ace", "multikill", "clutch", "kill"]},
+    "kills": {"label": "Kills / Aces / Clutchs", "types": ["ace", "multikill", "clutch", "kill", "victory"]},
     "drole": {"label": "Moments drôles", "types": ["funny_death", "laugh", "scream", "chat_spike", "marker"]},
     "communaute": {"label": "Moments communauté", "types": ["raid", "viewer_peak", "viewer_clip", "chat_spike"]},
     # Pendant les passages « discussion » (Just Chatting de début / fin de live) : rires, cris, chat qui s'emballe,
@@ -45,14 +50,14 @@ THEMES: dict[str, dict] = {
     # Long live : 60 s des meilleurs moments de tous les types, répartis entre les parties (ajouté tout seul).
     "bestof": {"label": "Best-of du live", "target": 60.0, "spread": True,
                "types": ["ace", "clutch", "multikill", "kill", "funny_death", "laugh", "scream", "chat_spike", "raid",
-                         "marker", "viewer_clip", "viewer_peak"]},
+                         "marker", "viewer_clip", "viewer_peak", "victory", "defeat", "rr"]},
 }
 
 BESTOF_MIN_DURATION = 45 * 60    # le best-of est ajouté aux lives d'au moins 45 min…
 BESTOF_MIN_MOMENTS = 10          # … qui ont au moins 10 moments
 
 # Types qui n'ont de sens qu'en jeu (pas cherchés hors Valorant).
-VALORANT_ONLY = {"ace", "multikill", "clutch", "kill", "funny_death"}
+VALORANT_ONLY = {"ace", "multikill", "clutch", "kill", "funny_death", "victory", "defeat", "rr"}
 
 
 @dataclass
@@ -82,6 +87,8 @@ def moment_score(mtype: str, meta: dict | None = None) -> float:
         s += min(20, int(meta.get("viewers", 0)) / 10)
     if mtype == "chat_spike":
         s += min(25, float(meta.get("intensity", 0)) * 5)
+    if mtype == "rr":
+        s += min(20, abs(int(meta.get("rr", 0) or 0)) / 2)      # +25 / -25 : plus parlant que +8
     return float(s)
 
 
@@ -123,10 +130,12 @@ def moments_to_clips(moments: Iterable[Moment], pre: float = PRE_ROLL, post: flo
             b, a = float(m.meta["before"]) + 5, float(m.meta.get("after") or 0) + 3
         elif viewer:
             b, a = VIEWER_CLIP
+        elif m.type in TYPE_ROLL and pre == PRE_ROLL:
+            b, a = TYPE_ROLL[m.type]
         else:
             b, a = pre, post
         first = float(m.meta.get("t_start", m.t))
-        start = max(0.0, min(m.t - b, first - (COMBO_LEAD if pre == PRE_ROLL else b)))
+        start = max(0.0, min(m.t - b, first - (COMBO_LEAD if pre == PRE_ROLL and m.type not in TYPE_ROLL else b)))
         end = m.t + a
         start = max(start, end - (VIEWER_MAX if viewer else MAX_CLIP))
         if stream_duration is not None:

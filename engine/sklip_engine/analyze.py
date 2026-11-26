@@ -36,7 +36,42 @@ def _stats(moments: list[Moment], deaths: list[float], rounds, duration: float, 
             "peak_viewers": extra.get("peak_viewers"), "raids": extra.get("raids", [])}
 
 
-def analyze_stream(video: str, root: str, title: str, themes: list[str] | None = None, target: float = 30.0,
+def target_for(target, theme: str, default: float = 60.0) -> float:
+    """Durée visée pour un thème : un nombre (la même pour tous) ou {thème: secondes} (réglage par thème)."""
+    if isinstance(target, dict):
+        return float(target.get(theme) or default)
+    return float(target if target is not None else default)
+
+
+def _endgames(video: str, cache: str, duration: float, partial_scans) -> list[dict]:
+    """Fins de partie : VICTOIRE / DÉFAITE et points de rang (« +16 RR »). Gardé en cache."""
+    end_file = os.path.join(cache, "endgame.json")
+    if os.path.exists(end_file):
+        with open(end_file, encoding="utf-8") as f:
+            return json.load(f)
+    from .endgame import merge_endgames, scan_endgames
+    try:
+        # Analyse pendant le live : les morceaux déjà lus ont leurs fins de partie ; on ne lit que la suite
+        # (en reprenant 3 min avant, l'écran du rang peut tomber juste après un morceau).
+        parts = []
+        for sp in partial_scans or []:
+            try:
+                with open(sp + ".endgame.json", encoding="utf-8") as f:
+                    parts.append(json.load(f))
+            except OSError:
+                pass
+        done_until = max([x["end"] for x in parts], default=0.0)
+        first = [e for x in parts for e in x["found"]]
+        rest = scan_endgames(video, start=max(0.0, done_until - 200.0)) if done_until < duration - 1 else []
+        endgames = merge_endgames(first + rest)
+    except Exception:
+        endgames = []
+    with open(end_file, "w", encoding="utf-8") as f:
+        json.dump(endgames, f, ensure_ascii=False)
+    return endgames
+
+
+def analyze_stream(video: str, root: str, title: str, themes: list[str] | None = None, target: float | dict = 30.0,
                    extra_moments: list[dict] | None = None, extra_stats: dict | None = None,
                    folder: str | None = None, day: str | None = None, scan: Scan | None = None,
                    hud: Hud | None = None, capture: dict | None = None, partial_scans: list[str] | None = None,
@@ -66,6 +101,12 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     if scan is None:
         scan = scan_video(video, progress=lambda f, m: report(0.02 + 0.83 * f, m))
         scan.save(scan_file)
+    # Fins de partie (VICTOIRE / DÉFAITE / RR) lues en parallèle des étapes suivantes : elles ne lisent que
+    # quelques images et la lecture de texte, le processeur a de la place (gain ~2 min sur un live de 3 h).
+    from concurrent.futures import ThreadPoolExecutor
+    pool = ThreadPoolExecutor(max_workers=1)
+    endgame_job = pool.submit(_endgames, video, cache, duration, partial_scans)
+
     # 2. Le bandeau du haut : score (rounds, parties) et joueurs en vie (clutchs).
     report(0.86, "Lecture du score et des joueurs en vie")
     hud_file = os.path.join(cache, "hud.npz")
@@ -123,6 +164,14 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         except Exception:
             vocal, speech = [], []             # piste illisible : on continue sans
 
+    # 3 ter. Fins de partie : lancées en même temps que le score / la webcam / la voix (voir plus haut), attendues ici.
+    report(0.958, "Recherche des victoires, défaites et RR")
+    try:
+        endgames = endgame_job.result()
+    except Exception:
+        endgames = []
+    pool.shutdown(wait=False)
+
     report(0.96, "Choix des meilleurs moments")
     events = refine_kills(video, find_kills(scan))     # kills très rapprochés : relecture fine de l'emblème
     from .killfeed import confirm_kills
@@ -144,6 +193,9 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     for m in to_moments(vocal):
         if 0 <= m["t"] <= duration:
             moments.append(Moment(m["type"], m["t"], None, m["meta"]))
+    for e in endgames:
+        if 0 <= float(e["t"]) <= duration:
+            moments.append(Moment(e["type"], float(e["t"]), None, e.get("meta", {})))
     moments += funny_deaths(deaths, moments)
     moments = sorted(rank_moments(moments), key=lambda m: m.t)
     from .segments import drop_paused
@@ -162,8 +214,25 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         kind = THEMES[th].get("scene")
         return in_scene(moments, kind, segments, hud_segs) if kind else moments
 
-    clips = {th: [c.to_dict() for c in select_clips(theme_moments(th), th, target, stream_duration=duration, speech=speech)]
+    targets = {th: target_for(target, th) for th in themes}      # durée par thème (Kills 1 min, Best-of 5 min…)
+    clips = {th: [c.to_dict() for c in select_clips(theme_moments(th), th, targets[th], stream_duration=duration, speech=speech)]
              for th in themes}
+    # Chat écrit du jeu (alliés / ennemis) : lu maintenant pour tous les clips proposés, l'éditeur n'attend plus.
+    game_chat = {"spans": [], "messages": []}
+    chat_file = os.path.join(cache, "gamechat.json")
+    try:
+        from .gamechat import chat_for_clips
+        cached = None
+        if os.path.exists(chat_file):
+            with open(chat_file, encoding="utf-8") as f:
+                cached = json.load(f)
+        in_game = [c for th in clips for c in clips[th]]       # hors jeu : rien à lire, vite passé
+        report(0.966, "Lecture du chat du jeu")
+        game_chat = chat_for_clips(video, in_game, cached, progress=lambda f: report(0.966 + 0.004 * f, "Lecture du chat du jeu"))
+        with open(chat_file, "w", encoding="utf-8") as f:
+            json.dump(game_chat, f, ensure_ascii=False)
+    except Exception:
+        pass                                   # sans lecture de texte (autre Windows) : l'éditeur fera sans
     # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
     for th in clips:
         assign_layouts(clips[th], segments, hud_segs, cam)
@@ -229,10 +298,11 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     stats = _stats(moments, deaths, rounds, duration, extra_stats or {})
     session = {
         "version": SESSION_VERSION, "title": title, "folder": folder, "video": os.path.abspath(video),
-        "duration": round(duration, 2), "target": target, "themes": themes,
+        "duration": round(duration, 2), "target": max(targets.values()), "targets": targets, "themes": themes,
         "moments": [m.to_dict() for m in moments], "clips": clips, "deaths": deaths, "stats": stats,
         "spectated_kills": sum(e.spectating for e in events), "tracks": tracks, "cam_detected": cam,
         "chat": chat,                         # messages du chat (temps de la vidéo), pour les bulles
+        "game_chat": game_chat,               # chat écrit du jeu déjà lu : {spans (passages lus), messages}
         "speech": speech,                     # quand le streamer parle : l'éditeur s'en sert pour ajuster les bords
         "segments": segs_out,                 # passages : jeu / catégorie, scène OBS, webcam
         # Heure (secondes depuis 1970) du début de l'enregistrement : sert à retrouver le même instant chez un pote.
@@ -243,5 +313,70 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     with open(os.path.join(folder, "stats.json"), "w", encoding="utf-8") as f:
         json.dump({"title": title, "stats": stats}, f, ensure_ascii=False, indent=1)
     write_stats_html(folder, title, stats, [m.to_dict() for m in moments if m.type != "kill"])
+    report(1.0, "Terminé")
+    return session
+
+
+def retarget(folder: str, theme: str, target: float, progress=None) -> dict:
+    """Refait les clips d'un thème pour une autre durée (menu « Durée » de l'éditeur, Sky 26/11 : 30 s, 1 min,
+    3 min, 5 min), sans relancer l'analyse : mêmes moments, mise en page par passage, chat du jeu (seuls les
+    passages pas encore lus), cadrage « Cam en grand ». Les bulles du chat lu à voix haute et les répliques des
+    coéquipiers déjà trouvées sont reprises quand elles tombent dans un nouveau clip. Renvoie la session à jour."""
+    report = progress or (lambda f, m: None)
+    with open(os.path.join(folder, "session.json"), encoding="utf-8") as f:
+        session = json.load(f)
+    if theme not in THEMES:
+        raise ValueError(f"Thème inconnu : {theme}")
+    cache = os.path.join(folder, ".sklip")
+    video, duration = session["video"], float(session["duration"])
+    moments = [Moment(m["type"], float(m["t"]), m.get("score"), m.get("meta", {})) for m in session.get("moments", [])]
+    from .segments import assign_layouts, hud_segments, in_scene
+    hud_segs = []
+    hud_file = os.path.join(cache, "hud.npz")
+    if os.path.exists(hud_file):
+        hud = Hud.load(hud_file)
+        hud_segs = hud_segments(hud.t, hud.score_left, duration)
+    segs = session.get("segments") or []
+    segments = segs if segs and any(sg.get("source") != "hud" for sg in segs) else None   # scènes OBS connues
+    kind = THEMES[theme].get("scene")
+    hud_segs = hud_segs or [sg for sg in segs if sg.get("source") == "hud"]
+    pool = in_scene(moments, kind, segments, hud_segs) if kind else moments
+    speech = [tuple(s) for s in session.get("speech") or []]
+    report(0.1, "Choix des clips")
+    clips = [c.to_dict() for c in select_clips(pool, theme, float(target), stream_duration=duration, speech=speech)]
+    assign_layouts(clips, segments, hud_segs, session.get("cam_detected"))
+    # Bulles et répliques déjà trouvées (tous thèmes) : reprises si elles tombent dans un nouveau clip.
+    old = [c for th in session.get("clips", {}) for c in session["clips"][th]]
+    for c in clips:
+        for field, at in (("chat", "start"), ("voices", "start")):
+            seen, items = set(), []
+            for o in old:
+                for it in o.get(field) or []:
+                    k = (round(float(it.get(at, 0)), 2), it.get("text"))
+                    if c["start"] <= float(it.get(at, -1)) < c["end"] and k not in seen:
+                        seen.add(k)
+                        items.append({**it, "end": min(float(it.get("end", it[at])), c["end"])} if "end" in it else dict(it))
+            if items:
+                c[field] = sorted(items, key=lambda x: x[at])
+    report(0.3, "Lecture du chat du jeu")
+    try:
+        from .gamechat import chat_for_clips
+        session["game_chat"] = chat_for_clips(video, clips, session.get("game_chat"),
+                                              progress=lambda f: report(0.3 + 0.5 * f, "Lecture du chat du jeu"))
+        with open(os.path.join(cache, "gamechat.json"), "w", encoding="utf-8") as f:
+            json.dump(session["game_chat"], f, ensure_ascii=False)
+    except Exception:
+        pass
+    report(0.85, "Cadrage des clips webcam")
+    try:
+        from .camfocus import add_focus
+        add_focus(video, clips, session.get("cam_detected"), {})
+    except Exception:
+        pass
+    session["clips"][theme] = clips
+    session["targets"] = {**(session.get("targets") or {}), theme: float(target)}
+    session["target"] = max(session["targets"].values())
+    with open(os.path.join(folder, "session.json"), "w", encoding="utf-8") as f:
+        json.dump(session, f, ensure_ascii=False, indent=1)
     report(1.0, "Terminé")
     return session

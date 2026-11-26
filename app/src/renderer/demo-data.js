@@ -12,6 +12,9 @@ export const MOMENT_INFO = {
   viewer_peak: { label: 'Peak viewers', color: '#34d399' },
   viewer_clip: { label: 'Clip viewer', color: '#a3e635' },
   marker: { label: 'Marqueur', color: '#f472b6' },
+  victory: { label: 'win', color: '#2ee6a8' },
+  defeat: { label: 'loose', color: '#ff4655' },
+  rr: { label: 'rr', color: '#e2e8f0' },
 };
 
 export const DEMO_SESSION = {
@@ -28,6 +31,8 @@ export const DEMO_SESSION = {
     { type: 'ace', t: 4475, score: 100 },
     { type: 'chat_spike', t: 4482, score: 55, meta: { intensity: 3 } },
     { type: 'funny_death', t: 5120, score: 55 },
+    { type: 'defeat', t: 5226, score: 35, meta: { score: '5-13' } },
+    { type: 'rr', t: 5255, score: 57, meta: { rr: -25, result: 'defeat' } },
     { type: 'kill', t: 6034, score: 30 },
     { type: 'multikill', t: 7710, score: 70, meta: { count: 2 } },
     { type: 'viewer_clip', t: 8090, score: 60 },
@@ -46,6 +51,8 @@ export const DEMO_SESSION = {
       color: '#FF69B4', badges: ['subscriber'], start: 1281.7, end: 1286.2, auto: true }] },
     { start: 2907, end: 2913 },
     { start: 4471, end: 4484 },
+    { start: 5225, end: 5231 },          // fin de partie classée : « loose » puis « rr-25 »
+    { start: 5253.5, end: 5258.5 },
     { start: 7706, end: 7712 },
   ],
 };

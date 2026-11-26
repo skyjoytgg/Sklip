@@ -73,6 +73,8 @@ main.full { padding: 0; overflow: hidden; }
   background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 45%, #111) 0%, #0c0c10 70%); }
 .preview.h .pv-game { flex: 1; }
 .pv-game video { width: 100%; height: 100%; object-fit: cover; }
+.pv-game .bv { position: relative; width: 100%; height: 100%; }
+.pv-game .bv video { position: absolute; inset: 0; }
 .pv-cam-corner { position: absolute; left: 3%; top: 4%; width: 20%; height: 26%; flex: none; border-radius: 4px; }
 .pv-text { position: absolute; left: 0; right: 0; bottom: 22%; text-align: center; font-weight: 900; font-size: 22px; color: #fff; text-shadow: 0 2px 0 #000, 0 0 12px var(--violet); letter-spacing: 1px; }
 .pv-text.big { font-size: 40px; color: #ffc400; }
@@ -409,3 +411,26 @@ body.resizing { cursor: col-resize; user-select: none; }
 .gtag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-right: 6px; font-weight: 600; }
 .gtag.ally { background: #5ECBEF22; color: #5ECBEF; }
 .gtag.enemy { background: #FF465522; color: #FF4655; }
+
+/* Durée par thème (réglages, assistant de départ) */
+.theme-durations { display: flex; flex-direction: column; gap: 10px; }
+.td-row { display: flex; flex-direction: column; gap: 4px; }
+.td-name { font-size: 13px; font-weight: 600; color: var(--text, #efeff1); }
+.card .big.sm { font-size: 15px; line-height: 1.4; }
+
+/* Teaser du début */
+.btn.ghost.sm.on { border-color: var(--accent, #9146FF); color: #fff; background: rgba(145, 70, 255, .22); }
+.tl-clip.teaser { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.10) 0 6px, transparent 6px 12px); }
+.tl-clip.teaser .tl-label span { display: none; }
+
+/* Titre et hashtags proposés après l'export */
+.post-idea { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.post-idea .pi-title { font-weight: 700; font-size: 15px; }
+.post-idea .pi-tags { color: var(--soft); font-size: 12px; }
+.post-idea .row { margin-top: 4px; gap: 6px; }
+
+/* Habitudes de montage apprises */
+.habits { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.habit { font-size: 13px; color: var(--text); }
+.learned { font-size: 12px; color: #d9c4ff; background: rgba(145, 70, 255, .18); border: 1px solid rgba(145, 70, 255, .45);
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap; cursor: help; }

@@ -14,6 +14,8 @@ const CONTEXT_AFTER = 8.0;       // s après : la réaction, et ne pas couper le
 const COMBO_LEAD = 10.0;         // multi-kill / ace / clutch : s avant le premier kill
 // Un clip viewer est créé APRÈS l'action, et le viewer choisit son extrait jusqu'à ~90 s avant (Sky : 1 min à 1 min 30).
 const VIEWER_CLIP = { before: 85.0, after: 10.0 };
+// Fins de partie : le dernier round avant la bannière ; l'écran du rang ne dure que 1 à 3 s (avant : chargement).
+const TYPE_WINDOW = { victory: [1.0, 5.0], defeat: [1.0, 5.0], rr: [1.5, 3.5] };   // comme le moteur (selection.py)
 
 /** Fenêtre [début, fin] du clip proposé pour un moment. */
 function momentWindow(m) {
@@ -22,6 +24,7 @@ function momentWindow(m) {
     if (mt.before != null) return { start: m.t - mt.before - 5, end: m.t + (mt.after || 0) + 3 };   // passage exact du clip
     return { start: m.t - VIEWER_CLIP.before, end: m.t + VIEWER_CLIP.after };
   }
+  if (TYPE_WINDOW[m.type]) return { start: m.t - TYPE_WINDOW[m.type][0], end: m.t + TYPE_WINDOW[m.type][1] };
   const first = m.meta && m.meta.t_start != null ? Number(m.meta.t_start) : m.t;
   return { start: Math.min(m.t - CONTEXT_BEFORE, first - COMBO_LEAD), end: m.t + CONTEXT_AFTER };
 }
@@ -46,6 +49,7 @@ function makeClip(c) {
     voices: c.voices || [],      // répliques des coéquipiers : [{ agent, name, start, end, text, on, auto }]
     chat: c.chat || [],          // bulles du chat : [{ t, user, text, color, badges, start, end, auto }] (temps du stream)
     gameChat: c.gameChat || null, // messages du chat du jeu lus dans l'image : null = pas encore lus ; [{ t, user, text, team }]
+    teaser: c.teaser || false,    // morceau du teaser du début (les meilleurs instants en coupes rapides)
   };
 }
 
@@ -209,6 +213,54 @@ function splitClip(p, id, at) {
   return { ...p, clips };
 }
 
+// ---------- Teaser ----------
+// Sky (26/11) : le meilleur moment au tout début, comme un teaser (« un multi-kill mais juste les 3 kills avec
+// coupure rapide »), puis le clip entier reste à sa place dans le montage.
+const TEASER_MAX = 3.0;          // s en tout
+const TEASER_KILL = [0.7, 0.3];  // autour de chaque kill : le tir et l'élimination (1 s)
+const TEASER_ONE = [2.0, 1.0];   // un seul instant (rire, ace, clutch…) : 3 s
+
+const momentPower = (m) => (Number(m.score) || 0) + 10 * Math.max(0, ((m.meta && m.meta.count) || 1) - 1);
+
+/** Les instants du teaser pour un montage : [{ start, end, from }] (temps du stream), ou [] s'il n'y a rien de fort. */
+function teaserCuts(p) {
+  let best = null;
+  let from = null;
+  for (const c of p.clips) {
+    if (c.teaser) continue;
+    for (const m of c.moments || []) if (!best || momentPower(m) > momentPower(best)) { best = m; from = c; }
+  }
+  if (!best) return [];
+  const kills = ((best.meta && best.meta.kills) || []).map(Number).filter((t) => t >= from.start && t <= from.end);
+  let cuts;
+  if (kills.length >= 2) {
+    const each = Math.min(TEASER_KILL[0] + TEASER_KILL[1], TEASER_MAX / Math.min(kills.length, 3));
+    const keep = kills.slice(-3);                                  // les 3 derniers : la fin de l'action
+    cuts = keep.map((k) => ({ start: k - each * 0.7, end: k + each * 0.3 }));
+    for (let i = 1; i < cuts.length; i++) cuts[i].start = Math.max(cuts[i].start, cuts[i - 1].end);   // pas de doublon
+    cuts = cuts.filter((x) => x.end - x.start >= 0.4);
+  } else {
+    cuts = [{ start: best.t - TEASER_ONE[0], end: best.t + TEASER_ONE[1] }];
+  }
+  return cuts.map((x) => ({ start: round(Math.max(from.start, x.start)), end: round(Math.min(from.end, x.end)), from }))
+    .filter((x) => x.end - x.start >= 0.4);
+}
+
+const hasTeaser = (p) => p.clips.some((c) => c.teaser);
+
+/** Ajoute (ou enlève avec `on = false`) le teaser au début du montage. */
+function setTeaser(p, on = true) {
+  const rest = p.clips.filter((c) => !c.teaser);
+  if (!on) return { ...p, clips: rest, teaserOff: true };
+  const cuts = teaserCuts({ ...p, clips: rest });
+  if (!cuts.length) return { ...p, clips: rest };
+  const parts = cuts.map((x) => makeClip({
+    start: x.start, end: x.end, layout: x.from.layout, cam: x.from.cam, scene: x.from.scene, focus: x.from.focus,
+    volumes: x.from.volumes, teaser: true, subs: [], gameChat: [], chat: [], voices: [],
+  }));
+  return { ...p, clips: [...parts, ...rest], teaserOff: false };
+}
+
 function removeClip(p, id) {
   return { ...p, clips: p.clips.filter((c) => c.id !== id) };
 }
@@ -274,11 +326,14 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   const has = (t) => all.find((m) => m.type === t);
   const best = all.reduce((a, m) => (!a || (m.meta?.count || 1) > (a.meta?.count || 1) ? m : a), null);
   let title;
+  const rr = has('rr') && has('rr').meta?.rr;
   if (theme === 'bestof') title = has('ace') ? 'Le best-of du live (avec un ACE) 🔥' : 'Le best-of du live 🔥';
   else if (all.some((m) => m.meta?.knives?.length)) title = 'Kill au couteau 🔪';
   else if (has('ace')) title = 'ACE 🔥';
   else if (has('clutch')) title = `Clutch ${has('clutch').meta?.vs ? `1v${has('clutch').meta.vs}` : ''} 🧠`.replace('  ', ' ');
   else if (best && best.type === 'multikill') title = `${best.meta.count}K 😤`;
+  else if (has('victory')) title = `VICTOIRE${has('victory').meta?.score ? ` ${has('victory').meta.score}` : ''} 🏆${rr > 0 ? ` (+${rr} RR)` : ''}`;
+  else if (rr < 0) title = `${rr} RR… 💀`;
   else if (theme === 'drole') title = 'Le moment où tout part en vrille 😂';
   else if (theme === 'communaute') title = 'Merci la commu ❤️';
   else if (theme === 'discussion') title = 'En direct avec le chat 🎙️';
@@ -287,6 +342,7 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   if (p.fmt === '9x16') tags.push('#shorts', '#fyp');
   if (all.some((m) => m.meta?.knives?.length)) tags.push('#knife');
   if (theme === 'drole') tags.push('#funny');
+  if (has('rr') || has('victory')) tags.push('#ranked');
   if (theme === 'discussion') tags.push('#justchatting');
   const desc = [streamTitle && `Extrait du live « ${streamTitle} »`, channel && `En live sur twitch.tv/${channel}`]
     .filter(Boolean).join(' — ');
@@ -397,6 +453,14 @@ const GAME_CHAT_LOOKBACK = 10;
 const GAME_CHAT_SHOW = 3;        // s : durée d'affichage d'un message du chat du jeu
 
 /** Messages du chat du jeu d'un clip, au format des messages Twitch (pour la même liste et la même bulle). */
+/** Chat du jeu lu pendant l'analyse ({ spans, messages }) pour ce clip, ou null s'il n'a pas été lu là. */
+function gameChatFromSession(gc, c, lookback = GAME_CHAT_LOOKBACK) {
+  if (!gc || !gc.spans) return null;
+  const a = c.start - lookback;
+  if (!gc.spans.some(([x, y]) => x <= a + 0.5 && y >= c.end - 0.5)) return null;
+  return (gc.messages || []).filter((m) => m.t >= a && m.t <= c.end);
+}
+
 function gameChatNear(c, lookback = GAME_CHAT_LOOKBACK) {
   return (c.gameChat || []).filter((m) => m.t >= c.start - lookback && m.t <= c.end)
     .map((m) => ({ ...m, color: GAME_CHAT_COLORS[m.team] || null, badges: [], game: true })).sort((a, b) => b.t - a.t);
@@ -589,7 +653,8 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
       focus: c.layout === 'cam_full' && c.focus ? c.focus : undefined,
       moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c),
-      stickers: stickers[c.id] && stickers[c.id].length ? stickers[c.id] : undefined })),
+      stickers: stickers[c.id] && stickers[c.id].length ? stickers[c.id] : undefined,
+      fade: c.teaser ? 0 : undefined })),                     // teaser : coupes franches, sans fondu au noir
   };
 }
 
@@ -605,9 +670,9 @@ module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, peekProject, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
-  momentWindow, splitClip, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
+  momentWindow, splitClip, teaserCuts, setTeaser, hasTeaser, TEASER_MAX, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
-  chatNear, gameChatNear, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
+  chatNear, gameChatNear, gameChatFromSession, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
   linesFromWords, lineText, setClipWords, setLineText, setLineOn, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

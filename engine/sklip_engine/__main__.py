@@ -27,7 +27,9 @@ def emit(kind: str, **data):
 
 def cmd_select(p):
     moments = [Moment(m["type"], m["t"], m.get("score"), m.get("meta", {})) for m in p["moments"]]
-    clips = select_clips(moments, p["theme"], p.get("target", 30), p.get("bpm"), p.get("stream_duration"),
+    from .analyze import target_for
+    th = p["theme"]
+    clips = select_clips(moments, th, target_for(p.get("target", 30), th) if isinstance(th, str) else p.get("target", 30), p.get("bpm"), p.get("stream_duration"),
                          p.get("speech"))
     return {"clips": [c.to_dict() for c in clips]}
 
@@ -39,7 +41,7 @@ def cmd_render(p):
                           c.get("moments", []), c.get("words"), c.get("friend"),
                           Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None,
                           (float(c["focus"]["x"]), float(c["focus"]["y"])) if c.get("focus") else None,
-                          c.get("stickers") or [])
+                          c.get("stickers") or [], c.get("fade"))
                for c in p["clips"]],
         cam=Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") and p["cam"].get("enabled", True) else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
@@ -148,11 +150,26 @@ def cmd_analyze(p):
                           known_tracks=p.get("known_tracks"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
+def cmd_retarget(p):
+    """Refait les clips d'un thème pour une autre durée (menu « Durée » de l'éditeur)."""
+    from .analyze import retarget
+    return retarget(p["folder"], p["theme"], float(p["target"]),
+                    progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+
+
 def cmd_scan_chunk(p):
     """Analyse pendant le live : mesure un morceau de l'enregistrement en cours et le garde dans `out`."""
     from .kill_detect import scan_video
     scan = scan_video(p["video"], start=p["start"], duration=p["duration"])
     scan.save(p["out"])
+    # Fins de partie du morceau (images clés seulement : léger), pour gagner ~2 min à la fin du live.
+    try:
+        from .endgame import scan_endgames
+        ends = scan_endgames(p["video"], p["start"], p["duration"])
+        with open(str(p["out"]) + ".endgame.json", "w", encoding="utf-8") as f:
+            json.dump({"start": p["start"], "end": p["start"] + p["duration"], "found": ends}, f, ensure_ascii=False)
+    except Exception:
+        pass
     return {"out": p["out"], "end": round(scan.end, 3), "frames": len(scan.t)}
 
 
@@ -206,6 +223,7 @@ COMMANDS = {
     "themes": lambda p: {"themes": THEMES},
     "encoder": lambda p: {"encoder": detect_encoder()},
     "select": cmd_select,
+    "retarget": cmd_retarget,
     "render": cmd_render,
     "sync": lambda p: sync_track(p["video"], p["track"]),
     "bpm": lambda p: detect_bpm_file(p["path"]),
