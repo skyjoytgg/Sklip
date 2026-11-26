@@ -77,6 +77,7 @@ class RenderClip:
     friend: dict | None = None                    # réaction d'un pote : {file, offset, mode, pos, cut_at, cut_dur}
     cam: Rect | None = None                       # webcam de la scène de ce clip (sinon celle du montage)
     focus: tuple | None = None                    # « Cam en grand » : centre du visage dans la webcam (x, y de 0 à 1)
+    stickers: list = field(default_factory=list)  # images posées sur la vidéo (bulle du chat, agent…), voir sticker_filter
 
 
 @dataclass
@@ -142,9 +143,28 @@ def friend_filter(fmt: str, layout: str, friend: dict, inp: str, delay: float = 
     return chain, "[fr_out]"
 
 
+STICKER_FADE_IN, STICKER_FADE_OUT, STICKER_SLIDE = 0.15, 0.2, 0.25
+
+
+def sticker_filter(inp: str, s: dict, k: int, last: str) -> tuple[str, str]:
+    """Image PNG (transparente) posée sur [last] de s["start"] à s["end"] (s, temps du clip), à (x, y) en pixels de
+    l'image finale, largeur s["w"]. anim : "fade" (apparition en fondu) ou "slide" (arrive par la droite)."""
+    a, b = float(s["start"]), float(s["end"])
+    x, y, w = int(s["x"]), int(s["y"]), _even(float(s["w"]))
+    out_t = max(a, b - STICKER_FADE_OUT)
+    chain = (f"{inp}format=rgba,scale={w}:-1,fade=t=in:st={a:.3f}:d={STICKER_FADE_IN}:alpha=1,"
+             f"fade=t=out:st={out_t:.3f}:d={STICKER_FADE_OUT}:alpha=1[st{k}]")
+    xe = str(x)
+    if s.get("anim") == "slide":
+        xe = f"'if(lt(t,{a + STICKER_SLIDE:.3f}),W-(W-{x})*(t-{a:.3f})/{STICKER_SLIDE},{x})'"
+    chain += f";{last}[st{k}]overlay=x={xe}:y={y}:eof_action=pass:enable='between(t,{a:.3f},{b:.3f})'[sto{k}]"
+    return chain, f"[sto{k}]"
+
+
 def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
                  dur: float, fade: float, post: str = "", friend: dict | None = None,
-                 friend_input: str | None = None, friend_delay: float = 0.0, focus: tuple | None = None) -> str:
+                 friend_input: str | None = None, friend_delay: float = 0.0, focus: tuple | None = None,
+                 stickers: list | None = None) -> str:
     """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
     (ex. incrustation des sous-titres). `friend` : réaction d'un pote (entrée `friend_input`)."""
     tail = [post] if post else []
@@ -154,6 +174,9 @@ def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None
     last = "[lay]"
     if friend and friend_input:
         chain, last = friend_filter(fmt, layout, friend, friend_input, friend_delay)
+        base += ";" + chain
+    for k, (inp, s) in enumerate(stickers or []):     # par-dessus le jeu et le pote, sous les textes (ASS)
+        chain, last = sticker_filter(inp, s, k, last)
         base += ";" + chain
     return f"{base};{last}{','.join(tail) or 'null'}[v]"
 
@@ -244,9 +267,14 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
         friend_delay = max(0.0, -u)
         friend_input = f"[{cmd.count('-i')}:v]"
         cmd += ["-ss", f"{max(0.0, u):.3f}", "-t", f"{dur:.3f}", "-i", clip.friend["file"]]
+    stickers = []
+    for s in clip.stickers:
+        if s.get("file") and os.path.exists(s["file"]) and float(s["end"]) > float(s["start"]):
+            stickers.append((f"[{cmd.count('-i')}:v]", s))
+            cmd += ["-loop", "1", "-framerate", str(spec.fps), "-t", f"{dur:.3f}", "-i", s["file"]]
     vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, spec.fade,
                       post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
-                      friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus)
+                      friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus, stickers=stickers)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
             *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
     return cmd

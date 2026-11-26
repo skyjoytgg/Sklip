@@ -265,7 +265,8 @@ class TwitchLive extends EventEmitter {
       this.data.raids.push(raid);
       this.emit('raid', raid);
     } else if (subType === 'channel.chat.message') {
-      const m = { at, user: ev.chatter_user_name, text: ev.message.text, badges: (ev.badges || []).map((b) => b.set_id) };
+      const m = { at, user: ev.chatter_user_name, text: ev.message.text, badges: (ev.badges || []).map((b) => b.set_id),
+        color: ev.color || null };
       this.data.chat.push(m);
       if (/^!clip\b/i.test(m.text.trim()) && m.badges.some((b) => b === 'broadcaster' || b === 'moderator')) {
         this.emit('marker', { at, by: m.user });

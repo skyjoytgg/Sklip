@@ -34,8 +34,16 @@ export const DEMO_SESSION = {
     { type: 'kill', t: 9802, score: 30 },
     { type: 'marker', t: 10411, score: 65 },
   ],
+  // Messages du chat (aperçu) : celui de 1279 s est lu par le streamer dans le 1er clip.
+  chat: [
+    { t: 1271.4, user: 'Kamel', text: 'il est chaud ce soir', color: '#1E90FF', badges: ['vip'] },
+    { t: 1279.2, user: 'Lilacassette', text: "J'envoie des pieds, j'envoie tout mais que au top frag", color: '#FF69B4', badges: ['subscriber'] },
+    { t: 1286.0, user: 'Nightbot', text: 'Suivez Sky sur TikTok : tiktok.com/@sky', color: '#7C7CE1', badges: ['moderator'] },
+    { t: 1290.5, user: 'zoe_val', text: 'TRIPLE KILL 🔥🔥', color: null, badges: [] },
+  ],
   clips: [
-    { start: 1284, end: 1292 },
+    { start: 1278, end: 1292, chat: [{ t: 1279.2, user: 'Lilacassette', text: "J'envoie des pieds, j'envoie tout mais que au top frag",
+      color: '#FF69B4', badges: ['subscriber'], start: 1281.7, end: 1286.2, auto: true }] },
     { start: 2907, end: 2913 },
     { start: 4471, end: 4484 },
     { start: 7706, end: 7712 },

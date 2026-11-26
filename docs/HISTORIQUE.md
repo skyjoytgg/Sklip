@@ -567,3 +567,37 @@ Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de 
   ~50 s de plus par live de 3 h. Bonus de score +55 (`KNIFE_BONUS`) : un kill au couteau seul passe devant un 3K.
   À l'écran : « 3 KILLS / AU COUTEAU » ; titre proposé « Kill au couteau 🔪 », hashtag #knife.
   Limite : un skin de couteau avec une icône très différente (large, ajourée) pourrait ne pas être reconnu.
+
+### 14 sexies. Messages du chat sur la vidéo (TikTok de goomsii montré par Sky)
+Sky : « quand je lis le message de quelqu'un sur le chat, une option pour mettre le message sur la vidéo ».
+Réponses de Sky : 1C (automatique + à la main), 2A (style Twitch : fond sombre, pseudo dans sa couleur, badges).
+- Pendant le live, `twitch.js` garde chaque message (pseudo, texte, badges, **couleur**). `pipeline.twitchExtras` les met
+  dans le temps de l'enregistrement (sans les commandes « !… ») → `analyze` (paramètre `chat`) → `session.json`.
+- `engine/sklip_engine/chatread.py` : dans chaque clip choisi qui a des messages récents (3 min avant), la piste micro
+  est transcrite (faster-whisper) et Sklip cherche les mots du message prononcés dans l'ordre, après qu'il a été posté
+  (fautes de transcription tolérées, mots ajoutés aussi ; messages de moins de 3 mots ignorés). Bulle affichée pendant
+  la lecture (au moins 2,5 s). Testé sur la voix de Sky (VOD du 25/11, 10:45 « ça me rend fou avec la Fantôme »).
+- Éditeur : « Messages du chat sur la vidéo » dans le clip sélectionné : les messages autour du clip, à cocher ;
+  ceux lus sont cochés tout seuls (« lu par toi ») ; « Afficher à partir d'ici ». Deux bulles ne se chevauchent pas.
+- Dessin de la bulle (`chat-bubble.js`, canvas) : le même PNG sert à l'aperçu et à l'export ; enregistré par
+  `sticker:save` dans `.sklip/stickers` du dossier du stream ; posé par le moteur (`render.sticker_filter`, fondu).
+  9:16 : à cheval entre la webcam et le jeu, comme sur le TikTok.
+- Limite : les VOD téléchargées n'ont pas le chat (Twitch ne le donne pas) : seulement les lives enregistrés avec Sklip.
+
+### 14 septies. L'agent qui parle, en grand sur la vidéo (même TikTok)
+Réponses de Sky : 3A (pote sur Discord), 4A (Sklip devine l'agent), 5A (images officielles Riot téléchargées par Sklip).
+Pour savoir qui parle, Sky a choisi C : d'abord B (Sklip propose, Sky choisit l'agent), puis A (empreintes vocales
+des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le vocal **du jeu** ? → fait en premier.
+- `app/src/main/agents.js` : liste des agents + icônes depuis valorant-api.com (rafraîchie toutes les 2 semaines,
+  dans `<données Sklip>/agents`) ; grand portrait téléchargé au besoin et détouré (`cropTransparent`, nativeImage).
+- `engine/sklip_engine/voicechat.py` : l'indicateur du vocal du jeu (en bas à gauche : icône de l'agent qui parle)
+  est lu 2 fois/s (comparaison avec les icônes, `cv2.matchTemplate`), puis la piste jeu est transcrite et chaque
+  phrase est donnée à l'agent qui parlait. L'agent de Sky (celui qui « parle » en même temps que son micro) est retiré.
+  Vérifié sur la VOD du 24/11 vers 20:06–20:42 (bom = Viper, Reyna, Sky = Neon).
+- Éditeur : « Ce que disent tes coéquipiers » : répliques entendues (non cochées par défaut), agent et texte
+  modifiables, « + Faire parler un agent ici » (pour Discord en attendant B). À l'export : le portrait glisse depuis
+  la droite, la phrase en grosses lettres blanches contour noir (`voice-card.js`) apparaît en fondu.
+- Testé dans la vraie appli : aperçu + export 9:16 regardés image par image (Viper + « Oui oui c'est bon… »).
+- Limite : sur une VOD, toutes les voix sont mélangées dans le son du stream → la phrase attribuée peut être un peu
+  fausse (c'est pour ça qu'elle est modifiable). En live avec les pistes séparées de Sklip, c'est plus propre.
+- Reste : B (transcrire la piste Discord, proposer les phrases, Sky choisit l'agent), puis A (empreintes vocales).

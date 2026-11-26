@@ -30,7 +30,7 @@ function pickTwitchData(pending, recordStartMs, recordStopMs) {
 
 /** Moments Twitch dans le temps de l'enregistrement + stats (raids, peak). */
 function twitchExtras(data, recordStartMs) {
-  if (!data) return { moments: [], stats: {} };
+  if (!data) return { moments: [], stats: {}, chat: [] };
   let moments = data.moments || [];
   // Si l'enregistrement n'était pas connu à la fin du live, on recale maintenant.
   if (!data.recordStartedAt && recordStartMs) moments = tm.streamToRecordingTime(moments, data.startedAt, recordStartMs);
@@ -42,6 +42,7 @@ function twitchExtras(data, recordStartMs) {
       peak_viewers: viewers.length ? Math.max(...viewers) : null,
     },
     title: data.title || null,
+    chat: tm.chatInRecordingTime(data.chat, data.recordStartedAt || recordStartMs || data.startedAt),
   };
 }
 
@@ -69,7 +70,8 @@ function editorSession(session, theme, { cam, tracks } = {}) {
     moments: session.moments, clips: session.clips[th] || [],
     cam: picked.cam, camSource: picked.source, camDetected: session.cam_detected || null,
     tracks: tracks || session.tracks || null,
-    speech: session.speech || [],     // quand le streamer parle : aimant et « Ajuster aux phrases » dans l'éditeur
+    speech: session.speech || [],
+    chat: session.chat || [],         // messages du chat (temps de la vidéo) : à afficher quand le streamer les lit     // quand le streamer parle : aimant et « Ajuster aux phrases » dans l'éditeur
   };
 }
 

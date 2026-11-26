@@ -108,6 +108,18 @@ function viewerClipMoments(clips, streamStartMs) {
 }
 
 /** Passe du temps du stream au temps de l'enregistrement OBS (qui peut démarrer avant ou après le live). */
+/**
+ * Messages du chat dans le temps de l'enregistrement (pour les afficher sur la vidéo quand le streamer les lit).
+ * Les commandes (« !clip »…) sont laissées de côté.
+ */
+function chatInRecordingTime(messages, recordStartMs) {
+  return (messages || [])
+    .filter((m) => m && m.text && !/^!/.test(m.text.trim()))
+    .map((m) => ({ t: Math.round(toStreamTime(m.at, recordStartMs) * 100) / 100, user: m.user, text: m.text,
+      color: m.color || null, badges: m.badges || [] }))
+    .filter((m) => m.t >= 0);
+}
+
 function streamToRecordingTime(moments, streamStartMs, recordStartMs) {
   const shift = (streamStartMs - recordStartMs) / 1000;
   return moments.map((m) => ({ ...m, t: m.t + shift })).filter((m) => m.t >= 0);
@@ -115,5 +127,5 @@ function streamToRecordingTime(moments, streamStartMs, recordStartMs) {
 
 module.exports = {
   BASE_CHAT_KEYWORDS, raidMoments, viewerPeakMoments, chatSpikeMoments, chatMarkerMoments,
-  viewerClipMoments, matchesKeywords, streamToRecordingTime,
+  viewerClipMoments, matchesKeywords, streamToRecordingTime, chatInRecordingTime,
 };

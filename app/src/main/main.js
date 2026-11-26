@@ -1,6 +1,6 @@
 // Processus principal d'Electron : fenêtre, OBS (lecture seule), moteur, réglages.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Notification, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Notification, globalShortcut, nativeImage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { ObsWatcher } = require('./obs-watcher');
@@ -11,6 +11,10 @@ const tm = require('./twitch-moments');
 const perf = require('./perf');
 const { Logger } = require('./logger');
 const pipeline = require('./pipeline');
+const { Agents, cropTransparent } = require('./agents');
+let agents = null;   // images des agents Valorant (vocal du jeu → agent en grand sur la vidéo)
+const agentsService = () => (agents = agents || new Agents(path.join(app.getPath('userData'), 'agents'),
+  { crop: (buf) => cropTransparent(nativeImage, buf) }));
 const { Markers } = require('./markers');
 const { LiveAnalyzer } = require('./live-analysis');
 const { FriendService, PRESENCE_EVERY } = require('./friends');
@@ -134,6 +138,8 @@ async function runAnalysis(video, rec = {}) {
     const n = rec.partialScans ? rec.partialScans.length : 0;
     jadd('analysis', 'Analyse lancée', { detail: n ? `${n} morceau(x) déjà analysé(s) pendant le live` : '' });
   }
+  // Icônes des agents (pour savoir qui parle dans le vocal du jeu) : sans connexion, l'analyse se fait sans.
+  const agentsDir = await agentsService().ensureIcons().catch(() => null);
   try {
     const session = await engine('analyze', {
       video, root: libraryRoot(), title: rec.title === undefined && !rec.start ? path.parse(video).name : title,
@@ -142,6 +148,8 @@ async function runAnalysis(video, rec = {}) {
       record_started_at: rec.start ? rec.start / 1000 : undefined,
       partial_scans: rec.partialScans && rec.partialScans.length ? rec.partialScans : undefined,
       segments: rec.segments || undefined,
+      chat: extras.chat && extras.chat.length ? extras.chat : undefined,
+      agents_dir: agentsDir || undefined,
     });
     settings.update({ lastSessionFolder: session.folder });
     if (friendService && rec.start) friendService.requestForSession(session).catch((e) => log.warn('Amis :', e));
@@ -466,6 +474,19 @@ app.whenReady().then(() => {
     if (!folder || !fs.existsSync(path.join(folder, 'session.json')) || !/^[\w-]+$/.test(theme)) return false;
     fs.writeFileSync(path.join(folder, `montage-${theme}.json`), JSON.stringify(project));
     return true;
+  });
+  ipcMain.handle('agents:list', async () => { await agentsService().ensureIcons().catch(() => null); return agentsService().list(); });
+  ipcMain.handle('agents:portrait', (_e, uuid) => agentsService().portrait(uuid).catch(() => null));
+  // Image posée sur la vidéo à l'export (bulle du chat…) : PNG dessiné par l'éditeur, rangé dans le dossier du stream.
+  ipcMain.handle('sticker:save', (_e, folder, name, dataUrl) => {
+    if (!folder || !fs.existsSync(path.join(folder, 'session.json')) || !/^[\w-]{1,80}$/.test(String(name))) return null;
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl));
+    if (!m || m[1].length > 8e6) return null;
+    const dir = path.join(folder, '.sklip', 'stickers');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${name}.png`);
+    fs.writeFileSync(file, Buffer.from(m[1], 'base64'));
+    return file;
   });
   ipcMain.handle('session:editor', (_e, folder, theme) => {
     const f = folder || settings.get().lastSessionFolder;

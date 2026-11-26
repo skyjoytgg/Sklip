@@ -110,6 +110,34 @@ test('texte proposé pour poster la vidéo', () => {
   assert.ok(post.hashtags.includes('#knife'));
 });
 
+test('messages du chat sur la vidéo : proposés, ajoutés, placés, exportés', () => {
+  const chat = [{ t: 50, user: 'Lila', text: 'trop fort le kill', color: '#FF69B4', badges: ['vip'] },
+    { t: 95, user: 'Kamel', text: 'gg', badges: [] }, { t: 300, user: 'Plus tard', text: 'x', badges: [] }];
+  let p = m.createProject({ clips: [{ id: 'a', start: 90, end: 110 }], streamDuration: 400 });
+  const c = p.clips[0];
+  assert.deepEqual(m.chatNear(chat, c).map((x) => x.user), ['Kamel', 'Lila']);     // 3 min avant → fin du clip
+  p = m.toggleChat(p, 'a', chat[0]);                                                // posté avant le clip : au début
+  let b = p.clips[0].chat[0];
+  assert.equal(b.start, 90.2); assert.equal(b.auto, false);
+  assert.ok(b.end - b.start >= 2.5 && b.end <= 110);
+  assert.ok(m.isChatShown(p.clips[0], chat[0]));
+  assert.equal(m.chatAt(p.clips[0], 91).length, 1); assert.equal(m.chatAt(p.clips[0], 100).length, 0);
+  p = m.moveChat(p, 'a', chat[0], 108);                                             // ne sort pas du clip
+  b = p.clips[0].chat[0];
+  assert.ok(b.end <= 110 && b.start < 108);
+  p = m.toggleChat(p, 'a', chat[1]);
+  assert.equal(p.clips[0].chat.find((x) => x.user === 'Kamel').start, 95.2);        // posté pendant le clip : à ce moment
+  p = m.toggleChat(p, 'a', chat[0]);
+  assert.deepEqual(p.clips[0].chat.map((x) => x.user), ['Kamel']);
+  assert.deepEqual(m.chatPlacement('9x16', 'cam_top', 200), { x: 80, y: 520, w: 920 });  // à cheval cam / jeu
+  assert.equal(m.chatPlacement('9x16', 'game_only', 200).y, 260);
+  assert.equal(m.chatReadTime('gg'), 2.5); assert.equal(m.chatReadTime('a '.repeat(40)), 7);
+  const st = { a: [{ file: 'b.png', start: 0.3, end: 3, x: 80, y: 520, w: 920, anim: 'fade' }] };
+  const spec = m.toRenderSpec(p, { video: 'v', output: 'o', stickers: st });
+  assert.equal(spec.clips[0].stickers[0].file, 'b.png');
+  assert.equal(m.toRenderSpec(p, { video: 'v', output: 'o' }).clips[0].stickers, undefined);
+});
+
 test('sous-titres : lignes, correction, blague, rendu', () => {
   const words = [
     { start: 30.14, end: 30.56, text: 'Tu' }, { start: 30.56, end: 30.66, text: 'mets' }, { start: 30.66, end: 31.02, text: 'ton...' },
@@ -167,4 +195,27 @@ test('ajuster aux phrases', () => {
   const r = m.fitToSentences(p, 'b', speech);                     // phrase de 40 s : on ne bouge pas de 16 s
   assert.deepStrictEqual([r.clips[1].start, r.clips[1].end], [296, 305]);
   assert.deepStrictEqual(m.cutsSentence(p.clips[0], null), { start: false, end: false });
+});
+
+test("répliques des coéquipiers : affichées, modifiées, ajoutées, placées", () => {
+  let p = m.createProject({ streamDuration: 3600, clips: [{ id: 'a', start: 100, end: 120,
+    voices: [{ agent: 'v1', name: 'Viper', start: 105, end: 106, text: 'oui oui', on: false, auto: true }] }] });
+  let c = p.clips[0];
+  assert.equal(m.voiceAt(c, 105.5), null);                          // pas cochée : rien à l'écran
+  p = m.setVoice(p, 'a', 0, { on: true });
+  c = p.clips[0];
+  assert.deepEqual(m.voiceShown(c, c.voices[0]), { start: 104.8, end: 107.3 }); // au moins 2,5 s
+  assert.equal(m.voiceAt(c, 105.5).name, 'Viper');
+  assert.equal(m.voiceAt(c, 108), null);
+  p = m.setVoice(p, 'a', 0, { text: '   ' });
+  assert.equal(m.voiceAt(p.clips[0], 105.5), null);                 // texte vide : rien
+  p = m.addVoice(p, 'a', 119.5, { uuid: 'r1', name: 'Reyna' });      // ne sort pas du clip
+  const v = p.clips[0].voices[1];
+  assert.deepEqual([v.agent, v.start, v.end, v.on, v.auto], ['r1', 119, 120, true, false]);
+  p = m.removeVoice(p, 'a', 0);
+  assert.deepEqual(p.clips[0].voices.map((x) => x.name), ['Reyna']);
+  const pl = m.voicePlacement('9x16', 'cam_top', 2);
+  assert.equal(pl.agent.y + Math.round(pl.agent.w * 2), 1920);       // collé en bas de l'image
+  assert.ok(pl.text.y >= 640);                                       // texte sous la cam
+  assert.ok(m.voicePlacement('16x9', 'cam_top').agent.x > 960);      // 16:9 : agent à droite
 });

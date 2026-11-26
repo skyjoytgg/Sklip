@@ -28,7 +28,16 @@ test('moments Twitch recalés sur l\'enregistrement + stats', () => {
   const ex = p.twitchExtras(data, T0);
   assert.deepEqual(ex.moments, [{ type: 'raid', t: 60 }]);         // le live a commencé 60 s avant l'enregistrement
   assert.deepEqual(ex.stats, { raids: [{ channel: 'Kamel', viewers: 42 }], peak_viewers: 134 });
-  assert.deepEqual(p.twitchExtras(null, T0), { moments: [], stats: {} });
+  assert.deepEqual(p.twitchExtras(null, T0), { moments: [], stats: {}, chat: [] });
+});
+
+test("messages du chat dans le temps de l'enregistrement (sans les commandes)", () => {
+  const data = { startedAt: T0 - 60e3, endedAt: T0 + 3600e3, chat: [
+    { at: new Date(T0 + 30e3).toISOString(), user: 'Lila', text: 'trop fort', badges: ['vip'], color: '#FF69B4' },
+    { at: T0 + 40e3, user: 'Sky', text: '!clip', badges: ['broadcaster'] },
+    { at: T0 - 10e3, user: 'Avant', text: 'avant le début', badges: [] },
+  ] };
+  assert.deepEqual(p.twitchExtras(data, T0).chat, [{ t: 30, user: 'Lila', text: 'trop fort', color: '#FF69B4', badges: ['vip'] }]);
 });
 
 test('titre du stream', () => {

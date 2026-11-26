@@ -26,6 +26,8 @@ function makeClip(c) {
     moments: c.moments || [],
     subs: c.subs || null,        // sous-titres : null = pas encore générés ; sinon lignes [{ start, end, words }]
     friend: c.friend || null,    // réaction d'un pote : { id, name, file, offset, duration, mode, pos, cutT, cutDur }
+    voices: c.voices || [],      // répliques des coéquipiers : [{ agent, name, start, end, text, on, auto }]
+    chat: c.chat || [],          // bulles du chat : [{ t, user, text, color, badges, start, end, auto }] (temps du stream)
   };
 }
 
@@ -301,6 +303,124 @@ function subtitleAt(c, t) {
   return { words: line.words.map((w) => w.text), current: k };
 }
 
+// ---------- Messages du chat sur la vidéo ----------
+const CHAT_LOOKBACK = 180;      // messages proposés : jusqu'à 3 min avant le clip (le streamer lit avec du retard)
+
+const sameMsg = (a, b) => a.t === b.t && a.user === b.user && a.text === b.text;
+
+/** Messages du chat autour d'un clip, du plus récent au plus ancien. */
+function chatNear(chat, c, lookback = CHAT_LOOKBACK) {
+  return (chat || []).filter((m) => m.t >= c.start - lookback && m.t <= c.end).sort((a, b) => b.t - a.t);
+}
+
+/** Temps de lecture d'un message (s) : de 2,5 à 7 s selon sa longueur. */
+function chatReadTime(text) {
+  const words = String(text || '').split(/\s+/).filter(Boolean).length;
+  return Math.min(7, Math.max(2.5, 1.2 + 0.32 * words));
+}
+
+const isChatShown = (c, m) => (c.chat || []).some((b) => sameMsg(b, m));
+
+/** Ajoute ou enlève la bulle d'un message dans un clip. Ajoutée à la main : quand le message arrive (ou au début du clip). */
+function toggleChat(p, id, m) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  if (isChatShown(c, m)) return updateClip(p, id, { chat: c.chat.filter((b) => !sameMsg(b, m)) });
+  const dur = chatReadTime(m.text);
+  let start = Math.max(m.t, c.start) + 0.2;
+  if (start > c.end - 1.5) start = c.start + 0.3;
+  for (const o of [...(c.chat || [])].sort((x, y) => x.start - y.start)) {   // pas deux bulles en même temps
+    if (start < o.end && start + dur > o.start && o.end + 0.1 < c.end - 1) start = o.end + 0.1;
+  }
+  const end = Math.min(c.end, start + dur);
+  const b = { t: m.t, user: m.user, text: m.text, color: m.color || null, badges: m.badges || [],
+    start: round(start), end: round(end), auto: false };
+  return updateClip(p, id, { chat: [...(c.chat || []), b].sort((x, y) => x.start - y.start) });
+}
+
+/** Déplace la bulle pour qu'elle commence à `t` (temps du stream), même durée, sans sortir du clip. */
+function moveChat(p, id, m, t) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  return updateClip(p, id, { chat: c.chat.map((b) => {
+    if (!sameMsg(b, m)) return b;
+    const d = b.end - b.start;
+    const s = Math.min(Math.max(c.start, t), Math.max(c.start, c.end - d));
+    return { ...b, start: round(s), end: round(Math.min(c.end, s + d)) };
+  }) });
+}
+
+/** Bulles visibles à l'instant `t` du stream. */
+const chatAt = (c, t) => (c.chat || []).filter((b) => t >= b.start && t < b.end);
+
+/**
+ * Où poser la bulle dans l'image finale (px) : à cheval entre la webcam et le jeu en 9:16 (comme sur TikTok),
+ * en haut du jeu sans webcam, en bas à gauche en 16:9. `h` : hauteur de la bulle.
+ */
+function chatPlacement(fmt, layout, h) {
+  if (fmt === '16x9') return { x: 60, y: Math.round(1080 * 0.58 - h / 2), w: 760 };
+  const w = 920, x = 80;
+  if (layout === 'cam_top') return { x, y: Math.max(20, Math.round(640 - h * 0.6)), w };
+  if (layout === 'cam_bottom') return { x, y: Math.round(1280 - h * 0.4), w };
+  return { x, y: 260, w };
+}
+const chatWidth = (fmt) => (fmt === '16x9' ? 760 : 920);
+
+// ---------- Répliques des coéquipiers (vocal du jeu) : l'agent en grand + sa phrase façon BD ----------
+const VOICE_MIN = 2.5;           // une réplique reste au moins 2,5 s à l'écran…
+const VOICE_AFTER = 0.8;         // … et un peu après la fin de la phrase
+
+/** Moment où la réplique est affichée (temps du stream), sans sortir du clip. */
+function voiceShown(c, v) {
+  const a = Math.max(c.start, v.start - 0.2);
+  return { start: round(a), end: round(Math.min(c.end, Math.max(v.end + VOICE_AFTER, a + VOICE_MIN))) };
+}
+
+function setVoice(p, id, i, patch) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c || !c.voices[i]) return p;
+  return updateClip(p, id, { voices: c.voices.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
+}
+
+/** Réplique ajoutée à la main à l'instant `t` (agent choisi, texte à écrire). */
+function addVoice(p, id, t, agent) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  const start = round(Math.min(Math.max(c.start, t), Math.max(c.start, c.end - 1)));
+  const v = { agent: agent ? agent.uuid : null, name: agent ? agent.name : '?', start, end: round(Math.min(c.end, start + 2)),
+    text: '', on: true, auto: false };
+  return updateClip(p, id, { voices: [...c.voices, v].sort((a, b) => a.start - b.start) });
+}
+
+function removeVoice(p, id, i) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  return updateClip(p, id, { voices: c.voices.filter((_, k) => k !== i) });
+}
+
+/** Répliques affichées à l'instant `t` du stream (la plus récente si elles se chevauchent). */
+function voiceAt(c, t) {
+  const on = (c.voices || []).filter((v) => v.on && v.agent && v.text.trim());
+  const now = on.filter((v) => { const s = voiceShown(c, v); return t >= s.start && t < s.end; });
+  return now.length ? now[now.length - 1] : null;
+}
+
+/**
+ * Où poser l'agent et le texte dans l'image finale (px). `ratio` = hauteur / largeur du portrait.
+ * 9:16 cam en haut : texte en haut du jeu, agent en bas à droite (il dépasse un peu du bord, comme sur TikTok).
+ */
+function voicePlacement(fmt, layout, ratio = 1.6) {
+  if (fmt === '16x9') {
+    const h = 760, w = Math.round(h / ratio);
+    return { agent: { x: 1920 - Math.round(w * 0.9), y: 1080 - h, w }, text: { x: 60, y: 110, w: 1100 } };
+  }
+  const zone = layout === 'cam_top' ? [640, 1920] : layout === 'cam_bottom' ? [0, 1280] : [0, 1920];
+  const h = Math.round((zone[1] - zone[0]) * 0.82);
+  const w = Math.round(h / ratio);
+  return { agent: { x: 1080 - Math.round(w * 0.82), y: zone[1] - h, w },
+    text: { x: 50, y: zone[0] + (layout === 'cam_top' ? 50 : 160), w: 980 } };
+}
+
 /** Paramètres envoyés au moteur (commande `render`). */
 // ---------- Réactions des amis ----------
 const REACTION_MODES = { pip: 'Incrustation', cut: 'Plan de coupe' };
@@ -364,7 +484,7 @@ function clipCam(c, cam, camManual = false) {
   return c.layout === 'cam_full' || !camManual ? c.cam : cam;
 }
 
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false }) {
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {} }) {
   return {
     post: post || null,
     auto_mix: p.autoMix !== false,
@@ -379,7 +499,8 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
       focus: c.layout === 'cam_full' && c.focus ? c.focus : undefined,
-      moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c) })),
+      moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c),
+      stickers: stickers[c.id] && stickers[c.id].length ? stickers[c.id] : undefined })),
   };
 }
 
@@ -397,5 +518,7 @@ module.exports = {
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
   isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
+  chatNear, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
+  voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
   linesFromWords, lineText, setClipWords, setLineText, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

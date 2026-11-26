@@ -5,6 +5,8 @@ import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
 import { Tour, EDITOR_TOUR } from './tour.jsx';
 import { THEMES } from './constants.js';
+import { chatBubbleImage, userColor } from './chat-bubble.js';
+import { voiceTextImage } from './voice-card.js';
 
 const THEME_LABELS = Object.fromEntries(THEMES.map((t) => [t.id, t.label]));
 
@@ -77,7 +79,92 @@ function FriendPreview({ clip, t, playing, vertical }) {
   );
 }
 
-function Preview({ project, player, videoSrc, cam, camManual = false }) {
+/** Bulle d'un message du chat dans l'aperçu : la même image que celle posée sur la vidéo à l'export. */
+function ChatBubbleView({ b, fmt, layout }) {
+  const img = chatBubbleImage(b, M.chatWidth(fmt));
+  const pl = M.chatPlacement(fmt, layout, img.h);
+  const [W, H] = fmt === '9x16' ? [1080, 1920] : [1920, 1080];
+  return <img className="pv-chat" src={img.url} alt="" style={{ left: `${(pl.x / W) * 100}%`, top: `${(pl.y / H) * 100}%`, width: `${(pl.w / W) * 100}%` }} />;
+}
+
+/** Messages du chat autour du clip : cocher = bulle sur la vidéo. Ceux que tu lis à voix haute sont cochés tout seuls. */
+function ChatPicker({ project, setProject, clip, chat, now }) {
+  const near = M.chatNear(chat, clip).slice(0, 40);
+  if (!chat.length) {
+    return <div className="note">Pendant tes lives (Twitch connecté), Sklip garde les messages du chat : ceux que tu lis à voix haute
+      s'affichent tout seuls, et tu pourras en ajouter ici.</div>;
+  }
+  if (!near.length) return <div className="note">Aucun message dans le chat pendant ce clip ni juste avant.</div>;
+  return (
+    <div className="chatpick">
+      {near.map((m) => {
+        const shown = (clip.chat || []).find((b) => b.t === m.t && b.user === m.user && b.text === m.text);
+        const ago = clip.start - m.t;
+        return (
+          <div key={`${m.t}-${m.user}`} className={'chatrow' + (shown ? ' on' : '')}>
+            <label className="check">
+              <input type="checkbox" checked={!!shown} onChange={() => setProject(M.toggleChat(project, clip.id, m))} />
+              <span><b style={{ color: userColor(m.user, m.color) }}>{m.user}</b> : {m.text}</span>
+            </label>
+            <div className="note">
+              {ago > 0 ? `${Math.round(ago)} s avant le clip` : 'pendant le clip'}
+              {shown && shown.auto ? ' · lu par toi' : ''}
+              {shown && <button className="link" onClick={() => setProject(M.moveChat(project, clip.id, m, now))}>Afficher à partir d'ici</button>}
+            </div>
+          </div>);
+      })}
+    </div>
+  );
+}
+
+/** Réplique d'un coéquipier dans l'aperçu : son agent en grand (il glisse depuis la droite) + le texte façon BD. */
+function VoiceView({ v, fmt, layout, portrait }) {
+  const [W, H] = fmt === '9x16' ? [1080, 1920] : [1920, 1080];
+  const ratio = portrait && portrait.width ? portrait.height / portrait.width : 1.6;
+  const pl = M.voicePlacement(fmt, layout, ratio);
+  const txt = voiceTextImage(v.text, pl.text.w);
+  const box = (r) => ({ left: `${(r.x / W) * 100}%`, top: `${(r.y / H) * 100}%`, width: `${(r.w / W) * 100}%` });
+  return (
+    <>
+      {portrait && <img className="pv-agent" src={`file:///${portrait.file}`} alt={v.name} style={box(pl.agent)} />}
+      <img className="pv-voice" src={txt.url} alt="" style={box(pl.text)} />
+    </>
+  );
+}
+
+/** Répliques des coéquipiers (vocal du jeu) : cocher = l'agent et sa phrase s'affichent sur la vidéo. */
+function VoicePicker({ project, setProject, clip, agents, now }) {
+  const voices = clip.voices || [];
+  return (
+    <div className="voicepick">
+      {!voices.length && <div className="note">Personne n'a parlé dans le vocal du jeu pendant ce clip (ou Sklip ne l'a pas vu).
+        Tu peux quand même faire parler un agent :</div>}
+      {voices.map((v, i) => (
+        <div key={i} className={'voicerow' + (v.on ? ' on' : '')}>
+          <div className="row nowrap">
+            <input type="checkbox" checked={!!v.on} title="Afficher sur la vidéo"
+              onChange={(e) => setProject(M.setVoice(project, clip.id, i, { on: e.target.checked }))} />
+            <select value={v.agent || ''} onChange={(e) => {
+              const a = agents.find((x) => x.uuid === e.target.value);
+              setProject(M.setVoice(project, clip.id, i, { agent: a ? a.uuid : null, name: a ? a.name : '?' }));
+            }}>
+              {!agents.some((a) => a.uuid === v.agent) && <option value={v.agent || ''}>{v.name || 'Agent ?'}</option>}
+              {agents.map((a) => <option key={a.uuid} value={a.uuid}>{a.name}</option>)}
+            </select>
+            <span className="note">{M.fmtTime(v.start)}{v.auto ? ' · entendu' : ''}</span>
+            <button className="link" onClick={() => setProject(M.removeVoice(project, clip.id, i))}>Retirer</button>
+          </div>
+          <input className="voicetext" value={v.text} placeholder="Ce que dit l'agent…"
+            onChange={(e) => setProject(M.setVoice(project, clip.id, i, { text: e.target.value }))} />
+        </div>))}
+      <button className="btn ghost sm" disabled={!agents.length}
+        onClick={() => setProject(M.addVoice(project, clip.id, now, agents[0]))}>+ Faire parler un agent ici</button>
+      {!agents.length && <div className="note">Liste des agents indisponible (pas de connexion internet ?).</div>}
+    </div>
+  );
+}
+
+function Preview({ project, player, videoSrc, cam, camManual = false, portraits = {}, needPortrait = () => {} }) {
   const clip = project.clips[player.idx];
   const videoRef = useRef(null);
   useEffect(() => {
@@ -118,6 +205,14 @@ function Preview({ project, player, videoSrc, cam, camManual = false }) {
         {showText && ['multikill', 'kill'].includes(mm.type) && project.texts.killCounter && (
           <div className="pv-text">{mm.meta?.count ? `${mm.meta.count} KILLS` : 'KILL'}{mm.meta?.knives?.length ? <><br />AU COUTEAU</> : null}</div>)}
         {clip && clip.friend && <FriendPreview clip={clip} t={clip.start + player.local} playing={player.playing} vertical={vertical} />}
+        {clip && (() => {
+          const v = M.voiceAt(clip, clip.start + player.local);
+          if (!v) return null;
+          if (!(v.agent in portraits)) needPortrait(v.agent);
+          return <VoiceView v={v} fmt={project.fmt} layout={layout} portrait={portraits[v.agent]} />;
+        })()}
+        {clip && M.chatAt(clip, clip.start + player.local).map((b) => (
+          <ChatBubbleView key={`${b.t}-${b.user}`} b={b} fmt={project.fmt} layout={layout} />))}
         {project.texts.enabled && project.texts.pseudo && <div className="pv-pseudo">{project.texts.pseudo}</div>}
         {project.texts.subtitles && clip && (() => {
           const st = M.subtitleAt(clip, clip.start + player.local);
@@ -285,6 +380,15 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
   const clip = project.clips.find((c) => c.id === selected);
   const [subsJob, setSubsJob] = useState(null);
   const [friendMsg, setFriendMsg] = useState(null);
+  const [agents, setAgents] = useState([]);           // agents Valorant (liste de l'éditeur)
+  const [portraits, setPortraits] = useState({});     // uuid → { file, width, height } | null
+  useEffect(() => { if (api.agentsList) api.agentsList().then((l) => setAgents(l || [])).catch(() => {}); }, []);
+  const portraitAsked = useRef(new Set());
+  const needPortrait = (uuid) => {
+    if (!uuid || portraitAsked.current.has(uuid) || !api.agentPortrait) return;
+    portraitAsked.current.add(uuid);
+    api.agentPortrait(uuid).then((p) => setPortraits((x) => ({ ...x, [uuid]: p || null }))).catch(() => {});
+  };
   const [askTo, setAskTo] = useState('');
   const [together, setTogether] = useState([]);   // potes en chat partagé pendant le clip sélectionné
   const selClip = project.clips.find((c) => c.id === selected);
@@ -364,9 +468,39 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
     const name = `sklip_${session.theme}_${project.fmt}${project.bpm ? `_${Math.round(project.bpm)}bpm` : ''}.mp4`;
     const output = session.stream.folder ? `${session.stream.folder}/montages/${name}` : name;
     const post = M.suggestPost(project, { streamTitle: session.stream.title, theme: session.theme, channel: session.channel });
-    const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
-      camManual: ['manual', 'project'].includes(camSource) });
     try {
+      // Bulles du chat : dessinées ici (comme dans l'aperçu), enregistrées en PNG, posées sur la vidéo par le moteur.
+      const stickers = {};
+      for (const c of project.clips) {
+        for (const [k, b] of (c.chat || []).entries()) {
+          if (b.end <= c.start || b.start >= c.end) continue;      // clip raccourci depuis : la bulle n'y est plus
+          const img = chatBubbleImage(b, M.chatWidth(project.fmt));
+          const file = await api.saveSticker(session.stream.folder, `chat_${c.id}_${k}`, img.url);
+          if (!file) continue;
+          const pl = M.chatPlacement(project.fmt, c.layout, img.h);
+          (stickers[c.id] = stickers[c.id] || []).push({ file, start: Math.max(0, b.start - c.start), end: Math.min(c.end, b.end) - c.start,
+            x: pl.x, y: pl.y, w: pl.w, anim: 'fade' });
+        }
+      }
+      // Répliques des coéquipiers : le grand portrait de l'agent (glisse depuis la droite) puis sa phrase façon BD.
+      for (const c of project.clips) {
+        for (const [k, v] of (c.voices || []).entries()) {
+          if (!v.on || !v.agent || !v.text.trim()) continue;
+          const shown = M.voiceShown(c, v);
+          if (shown.end <= shown.start) continue;
+          const portrait = await api.agentPortrait(v.agent).catch(() => null);
+          const ratio = portrait && portrait.width ? portrait.height / portrait.width : 1.6;
+          const pl = M.voicePlacement(project.fmt, c.layout, ratio);
+          const txt = voiceTextImage(v.text, pl.text.w);
+          const txtFile = await api.saveSticker(session.stream.folder, `voice_${c.id}_${k}`, txt.url);
+          const at = { start: shown.start - c.start, end: shown.end - c.start };
+          const list = (stickers[c.id] = stickers[c.id] || []);
+          if (portrait) list.push({ file: portrait.file, ...at, ...pl.agent, anim: 'slide' });
+          if (txtFile) list.push({ file: txtFile, ...at, ...pl.text, anim: 'fade' });
+        }
+      }
+      const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
+        camManual: ['manual', 'project'].includes(camSource), stickers });
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output });
     } catch (e) {
@@ -430,7 +564,7 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
 
         <section className="stage" data-tour="preview">
           <Preview project={project} player={player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} cam={cam}
-            camManual={['manual', 'project'].includes(camSource)} />
+            camManual={['manual', 'project'].includes(camSource)} portraits={portraits} needPortrait={needPortrait} />
           <div className="transport">
             <button className="btn sm" onClick={() => player.setPlaying(!player.playing)}>{player.playing ? '⏸ Pause' : '▶ Lire'}</button>
             <span className="note">{M.fmtTime(player.t)} / {M.fmtTime(total)}</span>
@@ -519,6 +653,12 @@ export function Editor({ session, onBack, onTheme, showTour, onTourDone }) {
                 </div>
               ) : <div className="note">Aucun ami de confiance en chat partagé avec toi pendant ce clip.</div>}
               {friendMsg && <div className="note friendmsg">{friendMsg}</div>}
+              <div className="lbl">Ce que disent tes coéquipiers</div>
+              <VoicePicker project={project} setProject={setProject} clip={clip} agents={agents}
+                now={Math.round((clip.start + player.local) * 100) / 100} />
+              <div className="lbl">Messages du chat sur la vidéo</div>
+              <ChatPicker project={project} setProject={setProject} clip={clip} chat={session.chat || []}
+                now={Math.round((clip.start + player.local) * 100) / 100} />
               <button className="btn ghost danger" style={{ marginTop: 14 }}
                 onClick={() => { setProject(M.removeClip(project, clip.id)); setSelected(null); }}>Retirer ce clip</button>
             </>

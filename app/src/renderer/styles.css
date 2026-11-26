@@ -350,3 +350,22 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 .blur-tip { margin-top: 8px; font-size: 12px; line-height: 1.4; color: #fbbf24; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3); border-radius: 8px; padding: 8px 10px; }
 .blur-tip .link { display: block; margin-top: 4px; }
+
+/* Messages du chat sur la vidéo */
+.pv-chat { position: absolute; z-index: 4; pointer-events: none; }
+.chatpick { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.chatrow { padding: 5px 6px; border-radius: 6px; font-size: 13px; }
+.chatrow.on { background: rgba(145, 70, 255, 0.14); }
+.chatrow .check { align-items: flex-start; }
+.chatrow .note { margin-left: 24px; display: flex; gap: 8px; align-items: center; }
+
+/* Répliques des coéquipiers (vocal du jeu) */
+.pv-agent { position: absolute; z-index: 4; pointer-events: none; animation: pv-slide 0.25s ease-out; }
+.pv-voice { position: absolute; z-index: 5; pointer-events: none; }
+@keyframes pv-slide { from { transform: translateX(60%); } to { transform: none; } }
+.voicepick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.voicerow { padding: 6px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.voicerow.on { border-color: var(--violet); background: rgba(145, 70, 255, 0.1); }
+.voicerow select { padding: 2px 6px; }
+.voicetext { width: 100%; }

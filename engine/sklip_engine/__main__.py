@@ -38,7 +38,8 @@ def cmd_render(p):
         clips=[RenderClip(c["start"], c["end"], c.get("layout", "cam_top"), c.get("volumes", {}),
                           c.get("moments", []), c.get("words"), c.get("friend"),
                           Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None,
-                          (float(c["focus"]["x"]), float(c["focus"]["y"])) if c.get("focus") else None)
+                          (float(c["focus"]["x"]), float(c["focus"]["y"])) if c.get("focus") else None,
+                          c.get("stickers") or [])
                for c in p["clips"]],
         cam=Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") and p["cam"].get("enabled", True) else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
@@ -128,7 +129,7 @@ def cmd_analyze(p):
     return analyze_stream(p["video"], p["root"], p.get("title") or Path(p["video"]).stem, p.get("themes"),
                           p.get("target", 30.0), p.get("extra_moments"), p.get("extra_stats"), p.get("folder"),
                           p.get("day"), capture=p.get("capture"), record_started_at=p.get("record_started_at"),
-                          partial_scans=p.get("partial_scans"), segments=p.get("segments"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+                          partial_scans=p.get("partial_scans"), segments=p.get("segments"), chat=p.get("chat"), agents_dir=p.get("agents_dir"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
 def cmd_scan_chunk(p):

@@ -40,7 +40,8 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
                    extra_moments: list[dict] | None = None, extra_stats: dict | None = None,
                    folder: str | None = None, day: str | None = None, scan: Scan | None = None,
                    hud: Hud | None = None, capture: dict | None = None, partial_scans: list[str] | None = None,
-                   record_started_at: float | None = None, segments: list[dict] | None = None, progress=None) -> dict:
+                   record_started_at: float | None = None, segments: list[dict] | None = None, progress=None,
+                   chat: list[dict] | None = None, agents_dir: str | None = None) -> dict:
     """Analyse `video` et prépare le dossier du stream. Renvoie la session (aussi écrite dans session.json)."""
     report = progress or (lambda f, m: None)
     themes = [t for t in (themes or ["kills"]) if t in THEMES] or ["kills"]
@@ -159,6 +160,35 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     # Passages (Valorant, Just Chatting…) : chaque clip prend la mise en page et la webcam de son passage.
     for th in clips:
         assign_layouts(clips[th], segments, hud_segs, cam)
+    # Messages du chat que le streamer lit à voix haute : une bulle façon Twitch pendant qu'il les lit.
+    chat = [m for m in (chat or []) if 0 <= float(m.get("t", -1)) <= duration]
+    if chat:
+        from .chatread import attach_chat
+        from .overlays import transcribe
+        mic_track = tracks.get("mic")
+
+        def words_of(a, b):
+            src, off = (mic_track["path"], float(mic_track.get("offset", 0.0))) if mic_track else (video, 0.0)
+            s0 = max(0.0, a - off)
+            return [{"start": s0 + off + w.start, "end": s0 + off + w.end, "text": w.text}
+                    for w in transcribe(src, s0, b - off)]
+        attach_chat([c for th in clips for c in clips[th]], chat, words_of,
+                    progress=lambda f: report(0.97 + 0.01 * f, "Messages du chat lus à voix haute"))
+    # Vocal du jeu : quel coéquipier parle (icône de son agent en bas à gauche) et ce qu'il dit (piste du jeu).
+    # Répliques proposées dans l'éditeur (agent en grand + texte façon BD), pas affichées d'office.
+    if agents_dir:
+        from .overlays import transcribe as _tr
+        from .voicechat import attach_voices
+        game_track = tracks.get("game")
+
+        def game_words(a, b):
+            src, off = (game_track["path"], float(game_track.get("offset", 0.0))) if game_track else (video, 0.0)
+            s0 = max(0.0, a - off)
+            return [{"start": s0 + off + w.start, "end": s0 + off + w.end, "text": w.text}
+                    for w in _tr(src, s0, b - off)]
+        game_clips = [c for th in clips for c in clips[th]]
+        attach_voices(game_clips, video, agents_dir, game_words, speech=speech if tracks.get("mic") else None,
+                      progress=lambda f: report(0.98, "Vocal du jeu : qui parle"))
     # « Cam en grand » : centrée sur le visage du streamer (ce qui bouge dans la webcam).
     from .camfocus import add_focus
     report(0.98, "Cadrage des clips webcam")
@@ -182,6 +212,7 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         "duration": round(duration, 2), "target": target, "themes": themes,
         "moments": [m.to_dict() for m in moments], "clips": clips, "deaths": deaths, "stats": stats,
         "spectated_kills": sum(e.spectating for e in events), "tracks": tracks, "cam_detected": cam,
+        "chat": chat,                         # messages du chat (temps de la vidéo), pour les bulles
         "speech": speech,                     # quand le streamer parle : l'éditeur s'en sert pour ajuster les bords
         "segments": segs_out,                 # passages : jeu / catégorie, scène OBS, webcam
         # Heure (secondes depuis 1970) du début de l'enregistrement : sert à retrouver le même instant chez un pote.
