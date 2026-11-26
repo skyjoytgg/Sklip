@@ -49,3 +49,16 @@ test("vérification avant le live : rappel si l'enregistrement OBS n'est pas aut
   assert.strictEqual((await rec(false)).level, 'warn');
   assert.match((await rec(false)).detail, /Démarrer l'enregistrement/);
 });
+
+test('réglages : durée des montages 1 min par défaut, l’ancien 30 s par défaut passe à 1 min une fois', () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const { Settings } = require('../src/main/settings');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sklip-set-'));
+  assert.strictEqual(new Settings(dir).get().targetDuration, 60);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ targetDuration: 30 }));
+  const s = new Settings(dir);
+  assert.strictEqual(s.get().targetDuration, 60);
+  s.update({ targetDuration: 30 });                          // choisi exprès ensuite : gardé
+  assert.strictEqual(new Settings(dir).get().targetDuration, 30);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

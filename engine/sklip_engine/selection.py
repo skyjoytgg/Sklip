@@ -1,9 +1,9 @@
-"""Choix des meilleurs clips pour un thème, jusqu'à la durée cible (15–60 s)."""
+"""Choix des meilleurs clips pour un thème, jusqu'à la durée cible (15 s – 5 min)."""
 from __future__ import annotations
 
 from .moments import THEMES, Clip, Moment, moments_to_clips
 
-MIN_TARGET, MAX_TARGET = 15.0, 60.0
+MIN_TARGET, MAX_TARGET = 15.0, 300.0
 
 
 def theme_types(theme: str | list[str]) -> set[str]:
@@ -21,8 +21,8 @@ def snap_to_beats(duration: float, bpm: float, min_beats: int = 2) -> float:
     return n * beat
 
 
-SNAP_BEFORE = 2.5    # s : on recule le début jusqu'au début de la phrase, au plus de 2,5 s
-SNAP_AFTER = 3.0     # s : on prolonge la fin jusqu'à la fin de la phrase, au plus de 3 s
+SNAP_BEFORE = 4.0    # s : on recule le début jusqu'au début de la phrase, au plus de 4 s
+SNAP_AFTER = 8.0     # s : on prolonge la fin jusqu'à la fin de la phrase, au plus de 8 s (Sky : « le clip se coupe alors que je parle encore »)
 
 
 def _inside(spans: list[tuple[float, float]], t: float):
@@ -72,7 +72,8 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
     - si un BPM est donné, chaque clip dure un nombre entier de temps (coupes sur le beat).
     """
     spec = THEMES.get(theme, {}) if isinstance(theme, str) else {}
-    target = min(MAX_TARGET, max(MIN_TARGET, float(spec.get("target", target))))
+    # Best-of : au moins sa propre cible (60 s), plus si le streamer a choisi des montages plus longs.
+    target = min(MAX_TARGET, max(MIN_TARGET, float(target), float(spec.get("target", 0))))
     wanted = theme_types(theme)
     clips = moments_to_clips([m for m in moments if m.type in wanted], stream_duration=stream_duration)
     clips = snap_to_speech(clips, speech, stream_duration)   # pas de coupe au milieu d'une phrase
@@ -94,6 +95,11 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
             total += c.duration
         if total >= target - 1.0:
             break
+    if not chosen and clips:
+        # Même le meilleur clip dépasse la cible : on le garde, raccourci par le début (le moment fort reste).
+        best = max(clips, key=lambda c: c.score)
+        best.start = max(best.start, best.end - target)
+        chosen = [best]
     return sorted(chosen, key=lambda c: c.start)
 
 

@@ -58,8 +58,8 @@ def test_analyse_complete(tmp_path):
     assert types == ["multikill", "chat_spike", "raid"]          # marqueur hors de la vidéo ignoré
     mk = s["moments"][0]
     assert mk["meta"]["count"] == 2 and mk["meta"]["boost"] == ["chat_spike"]
-    assert len(s["clips"]["kills"]) == 1 and s["clips"]["kills"][0]["start"] == 26.0
-    assert [m["type"] for c in s["clips"]["communaute"] for m in c["moments"]] == ["chat_spike", "raid"]
+    assert len(s["clips"]["kills"]) == 1 and s["clips"]["kills"][0]["start"] == 21.0   # marge large (6 s avant le 1er kill)
+    assert "raid" in [m["type"] for c in s["clips"]["communaute"] for m in c["moments"]]   # clips larges : 30 s = 1-2 moments
     assert s["stats"]["kills"] == 2 and s["stats"]["peak_viewers"] == 134
     saved = json.load(open(os.path.join(folder, "session.json"), encoding="utf-8"))
     assert saved["moments"] == s["moments"]

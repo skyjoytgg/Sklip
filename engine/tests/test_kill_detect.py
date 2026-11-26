@@ -121,3 +121,24 @@ def test_kills_tres_rapproches_separes_par_la_relecture_fine():
     # deux kills qui se suivent dans la même apparition de l'emblème = un seul groupe à relire
     ev = [KillEvent(10.0, 1.0, 50, False), KillEvent(11.0, 2.0, 60, False), KillEvent(30.0, 2.0, 60, False)]
     assert [len(g) for g in _groups(ev, 4.0)] == [2, 1]
+
+
+def test_emblemes_pales_confirmes_par_le_fil_des_kills(monkeypatch):
+    # Live du 26/11, 20:09 : 3e kill du round, emblème sur fond clair qui ne monte qu'à 19.
+    import numpy as np
+    from sklip_engine import killfeed
+    from sklip_engine.kill_detect import KillEvent, weak_kill_candidates
+    fps = 4.0
+    t = np.arange(0, 30, 1 / fps)
+    banner = np.full(len(t), 2.0, np.float32)
+    banner[(t >= 5) & (t < 6.75)] = 50.0          # vrai kill (déjà trouvé)
+    banner[(t >= 12) & (t < 13.75)] = 19.0        # emblème pâle
+    banner[(t >= 20) & (t < 20.5)] = 18.0         # trop court : du bruit
+    scan = Scan(fps, t, banner, np.zeros(len(t), np.float32))
+    known = [KillEvent(5.0, 1.75, 50.0, False)]
+    cands = weak_kill_candidates(scan, known)
+    assert [c.t for c in cands] == [12.0]
+    # Une ligne « allié tue ennemi » de plus dans le fil juste après -> confirmé ; sinon écarté.
+    monkeypatch.setattr(killfeed, "weapon_icons", lambda f: [0] * f)
+    assert killfeed.confirm_kills("v", cands, frame=lambda x: 2 if x > 12 else 1) == cands
+    assert killfeed.confirm_kills("v", cands, frame=lambda x: 1) == []

@@ -369,3 +369,26 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .voicerow.on { border-color: var(--violet); background: rgba(145, 70, 255, 0.1); }
 .voicerow select { padding: 2px 6px; }
 .voicetext { width: 100%; }
+
+/* Analyse en cours, dans la colonne de gauche (visible depuis toutes les pages) */
+.analysis-pill { flex-wrap: wrap; gap: 6px; cursor: pointer; text-align: left; border: 1px solid #9146ff55; background: #9146ff14; }
+.analysis-pill .note { width: 100%; font-size: 11px; margin: 0; }
+.analysis-pill .mini-bar { flex: 1 1 60px; height: 4px; border-radius: 2px; background: #ffffff1a; overflow: hidden; }
+.analysis-pill .mini-bar span { display: block; height: 100%; background: #9146ff; transition: width .4s; }
+.dot.busy { background: #9146ff; animation: busy 1.2s ease-in-out infinite; }
+@keyframes busy { 50% { opacity: .35; } }
+
+/* Aperçu d'un moment détecté sans l'ajouter */
+.mrow.clickable { cursor: pointer; }
+.mrow.peek { background: #9146ff22; outline: 1px solid #9146ff88; }
+.peekbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; background: #9146ff1f; border: 1px solid #9146ff66; font-size: 13px; }
+
+/* Retirer un moment de la liste */
+.mhide { background: none; border: 0; color: var(--muted, #8a8a99); cursor: pointer; font-size: 14px; padding: 4px 6px;
+  border-radius: 6px; opacity: .35; transition: opacity .15s; flex-shrink: 0; }
+.mrow:hover .mhide, .mrow.peek .mhide { opacity: 1; }
+.mhide:hover { color: #ff6b6b; background: #ff6b6b1a; }
+.mrow.hidden { opacity: .45; }
+.moments .mrow .grow { min-width: 0; }
+.moments .mrow .btn { flex-shrink: 0; padding-left: 8px; padding-right: 8px; }

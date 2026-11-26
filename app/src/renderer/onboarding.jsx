@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import { SceneTypes } from './scene-types.jsx';
 import { THEMES, MODES, FORMATS } from './constants.js';
+import { DurationPicker } from './durations.jsx';
 import { TwitchBlock } from './twitch-block.jsx';
 
 const VERDICTS = {
@@ -187,8 +188,7 @@ export function Onboarding({ settings, setSettings, obs, onDone }) {
               <button key={id} className={'chip' + (formats.includes(id) ? ' on' : '')} onClick={() => set({ formats: toggleIn(formats, id) })}>{label}</button>))}
           </div>
           <div className="lbl">Durée des montages</div>
-          <div className="row"><input type="range" min="15" max="60" step="5" value={settings.targetDuration}
-            onChange={(e) => set({ targetDuration: Number(e.target.value) })} /> <b>{settings.targetDuration} s</b></div>
+          <DurationPicker value={settings.targetDuration} onChange={(d) => set({ targetDuration: d })} />
         </>),
     },
     {

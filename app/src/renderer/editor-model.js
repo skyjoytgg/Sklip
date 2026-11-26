@@ -1,13 +1,26 @@
 // Modèle de l'éditeur de montage : fonctions pures (testées dans test/editor-model.test.js).
 // Un projet de montage = { streamDuration, fmt, bpm, clips: [...], volumes, texts }.
 
+const { isViewerMessage, cleanChatText } = require('../main/chat-bots');
+
 const TRACKS = ['game', 'mic', 'discord', 'music'];
 const TRACK_LABELS = { game: 'Jeu', mic: 'Micro', discord: 'Discord', music: 'Musique' };
 const DEFAULT_VOLUMES = { game: 1, mic: 1, discord: 1, music: 0 };
 const LAYOUTS = { cam_top: 'Cam en haut', cam_bottom: 'Cam en bas', game_only: 'Jeu seul', cam_full: 'Cam en grand' };
 const MIN_CLIP = 1.0;
-const PRE_ROLL = 4.0;
-const POST_ROLL = 2.0;
+// Contexte autour d'un moment (demande de Sky : 6 s c'est trop court, on ne voit pas l'action venir).
+const CONTEXT_BEFORE = 30.0;     // s avant le moment (rire, kill, cri…)
+const CONTEXT_AFTER = 8.0;       // s après : la réaction, et ne pas couper le streamer qui parle encore
+const COMBO_LEAD = 10.0;         // multi-kill / ace / clutch : s avant le premier kill
+// Un clip viewer est créé APRÈS l'action : il couvre en gros les 30 s avant sa création.
+const VIEWER_CLIP = { before: 25.0, after: 8.0 };
+
+/** Fenêtre [début, fin] du clip proposé pour un moment. */
+function momentWindow(m) {
+  if (m.type === 'viewer_clip') return { start: m.t - VIEWER_CLIP.before, end: m.t + VIEWER_CLIP.after };
+  const first = m.meta && m.meta.t_start != null ? Number(m.meta.t_start) : m.t;
+  return { start: Math.min(m.t - CONTEXT_BEFORE, first - COMBO_LEAD), end: m.t + CONTEXT_AFTER };
+}
 
 let idSeq = 0;
 const newId = () => `c${Date.now().toString(36)}${(idSeq++).toString(36)}`;
@@ -143,8 +156,9 @@ function round(x) { return Math.round(x * 1000) / 1000; }
 
 /** Ajoute un moment détecté comme nouveau clip (à la fin, ou à l'index donné). */
 function addMoment(p, moment, index = p.clips.length) {
-  let start = Math.max(0, moment.t - PRE_ROLL);
-  let end = moment.t + POST_ROLL;
+  const w = momentWindow(moment);
+  let start = Math.max(0, w.start);
+  let end = w.end;
   if (p.streamDuration != null) end = Math.min(end, p.streamDuration);
   if (p.bpm) start = Math.max(0, end - snapDuration(end - start, p.bpm));
   const clips = p.clips.slice();
@@ -152,8 +166,30 @@ function addMoment(p, moment, index = p.clips.length) {
   return { ...p, clips };
 }
 
+/**
+ * Aperçu d'un moment sans l'ajouter au montage : un projet d'un seul clip (même découpe que « + Ajouter »),
+ * avec la mise en page du clip qui le contient s'il y en a un (`like` : clips du montage ou proposés par Sklip).
+ */
+function peekProject(p, moment, like = []) {
+  const q = addMoment({ ...p, clips: [] }, moment);
+  const near = like.find((c) => moment.t >= c.start && moment.t <= c.end);
+  if (near) q.clips[0] = { ...q.clips[0], layout: near.layout || q.clips[0].layout, cam: near.cam, focus: near.focus };
+  return q;
+}
+
 function removeClip(p, id) {
   return { ...p, clips: p.clips.filter((c) => c.id !== id) };
+}
+
+// ---------- Moments retirés de la liste (le streamer n'en veut pas) ----------
+const momentKey = (m) => `${m.type}@${Math.round(m.t * 10) / 10}`;
+const isMomentHidden = (p, m) => (p.hiddenMoments || []).includes(momentKey(m));
+
+/** Retire un moment de la liste « Moments détectés » (ou le remet avec `hidden = false`). Gardé dans le projet. */
+function hideMoment(p, m, hidden = true) {
+  const k = momentKey(m);
+  const list = (p.hiddenMoments || []).filter((x) => x !== k);
+  return { ...p, hiddenMoments: hidden ? [...list, k] : list };
 }
 
 /** Un moment est « utilisé » s'il tombe dans un des clips du montage. */
@@ -310,7 +346,9 @@ const sameMsg = (a, b) => a.t === b.t && a.user === b.user && a.text === b.text;
 
 /** Messages du chat autour d'un clip, du plus récent au plus ancien. */
 function chatNear(chat, c, lookback = CHAT_LOOKBACK) {
-  return (chat || []).filter((m) => m.t >= c.start - lookback && m.t <= c.end).sort((a, b) => b.t - a.t);
+  // Les streams déjà analysés peuvent encore contenir des messages de bots : on les écarte ici aussi.
+  return (chat || []).filter((m) => m.t >= c.start - lookback && m.t <= c.end && isViewerMessage(m))
+    .map((m) => ({ ...m, text: cleanChatText(m.text) })).sort((a, b) => b.t - a.t);
 }
 
 /** Temps de lecture d'un message (s) : de 2,5 à 7 s selon sa longueur. */
@@ -514,9 +552,9 @@ function fmtTime(s) {
 
 module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
-  clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, removeClip, updateClip,
+  clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, peekProject, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
-  isMomentUsed, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
+  momentWindow, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   chatNear, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,

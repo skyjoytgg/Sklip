@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
 import { Editor } from './editor.jsx';
 import { TOUR_VERSION } from './tour.jsx';
-import { THEMES, MODES } from './constants.js';
+import { THEMES, MODES, durationLabel } from './constants.js';
+import { DurationPicker } from './durations.jsx';
 import { TwitchBlock } from './twitch-block.jsx';
 import { Onboarding, PcTest } from './onboarding.jsx';
 import { FriendsBlock } from './friends-block.jsx';
@@ -11,8 +12,16 @@ import { LiveJournalCard } from './live-journal.jsx';
 import { PrecheckCard } from './precheck.jsx';
 import { LivesPage } from './lives.jsx';
 import { SceneTypes } from './scene-types.jsx';
+import { percent, remaining } from './analysis-progress.js';
 
-function Sidebar({ page, setPage, obs }) {
+/** Rafraîchit l'affichage toutes les `ms` (temps restant qui défile). */
+function useTick(on, ms = 10000) {
+  const [, set] = useState(0);
+  useEffect(() => { if (!on) return undefined; const t = setInterval(() => set((n) => n + 1), ms); return () => clearInterval(t); }, [on]);
+}
+
+function Sidebar({ page, setPage, obs, analysis = {} }) {
+  useTick(analysis.running);
   const [mk, setMk] = useState(null);
   useEffect(() => api.onMarker((m) => { setMk(m); setTimeout(() => setMk((x) => (x === m ? { ...m, old: true } : x)), 3000); }), []);
   const items = [['accueil', 'Accueil'], ['lives', 'Lives'], ['montage', 'Montage'], ['historique', 'Historique'], ['reglages', 'Réglages']];
@@ -25,6 +34,12 @@ function Sidebar({ page, setPage, obs }) {
       <div className="grow" />
       <div className="pill"><span className={'dot' + (obs.connected ? ' ok' : '')} />OBS {obs.connected ? 'connecté' : 'non connecté'}</div>
       <div className="pill"><span className={'dot' + (obs.streaming ? ' live' : '')} />{obs.streaming ? 'En live' : 'Hors live'}</div>
+      {analysis.running && (
+        <button className="pill analysis-pill" title="Voir l'analyse sur l'accueil" onClick={() => setPage('accueil')}>
+          <span className="dot busy" />Analyse {percent(analysis)}
+          <span className="mini-bar"><span style={{ width: percent(analysis).replace(' ', '') }} /></span>
+          <span className="note">{remaining(analysis)}</span>
+        </button>)}
       {mk && <div className={'pill' + (mk.old ? '' : ' flash')}>📍 {mk.counted ? `${mk.total} marqueur${mk.total > 1 ? 's' : ''}` : "Marqueur ignoré (pas d'enregistrement)"}</div>}
     </aside>
   );
@@ -43,7 +58,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
     const video = await api.openVideo();
     if (!video) return;
     setError(null);
-    setJob({ message: 'Préparation…', fraction: 0, video });
+    setJob({ message: 'Préparation…', fraction: 0, video, startedAt: Date.now() });
     try {
       const r = await api.analyzeVideo(video);
       openSession(r.folder);
@@ -51,6 +66,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
     setJob(null);
   };
   const running = analysis.running || job;
+  useTick(!!running);
   return (
     <>
       <h1>Salut 👋</h1>
@@ -60,7 +76,7 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
           <div className="note">{obs.recording ? 'Enregistrement en cours' : "Pas d'enregistrement en cours"}</div></div>
         <div className="card"><h3>Analyse</h3><div className="big">{MODES[settings.analysisMode]}</div>
           <div className="note">Modifiable dans les réglages</div></div>
-        <div className="card"><h3>Durée des montages</h3><div className="big">{settings.targetDuration} s</div>
+        <div className="card"><h3>Durée des montages</h3><div className="big">{durationLabel(settings.targetDuration)}</div>
           <div className="note">{(settings.formats || []).join(' · ').replace('9x16', '9:16').replace('16x9', '16:9')}</div></div>
       </div>
       <h3 style={{ margin: '0 0 4px' }}>Thèmes à monter</h3>
@@ -78,7 +94,10 @@ function Accueil({ settings, setSettings, obs, analysis, openSession, setPage })
       {running && (
         <div className="card" style={{ marginTop: 20 }}>
           <div><b>Analyse en cours</b>{analysis.title ? ` — ${analysis.title}` : ''}</div>
-          <div className="note">{(job && job.message) || analysis.message || 'Lecture de la vidéo…'}</div>
+          <div className="row nowrap" style={{ justifyContent: 'space-between' }}>
+            <div className="note">{(job && job.message) || analysis.message || 'Lecture de la vidéo…'}</div>
+            <div className="note"><b>{percent(job || analysis)}</b>{remaining({ running: true, ...(job || analysis) }) ? ` · ${remaining({ running: true, ...(job || analysis) })}` : ''}</div>
+          </div>
           <div className="bar"><div style={{ width: `${Math.round(((job && job.fraction) || analysis.fraction || 0) * 100)}%` }} /></div>
           <div className="note">Tu peux continuer à utiliser ton PC : Sklip tourne en priorité basse.</div>
         </div>
@@ -152,8 +171,7 @@ function Reglages({ settings, setSettings }) {
         <select value={settings.analysisMode} onChange={(e) => set({ analysisMode: e.target.value })}>
           {Object.entries(MODES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
       <div className="field"><label>Durée cible des montages</label>
-        <div className="row"><input type="range" min="15" max="60" step="5" value={settings.targetDuration}
-          onChange={(e) => set({ targetDuration: Number(e.target.value) })} /> {settings.targetDuration} s</div></div>
+        <DurationPicker value={settings.targetDuration} onChange={(d) => set({ targetDuration: d })} /></div>
       <div className="field"><label>Capturer les pistes séparées (jeu, micro, Discord, musique)</label>
         <div><input type="checkbox" checked={settings.audio.captureEnabled} onChange={(e) => set({ audio: { captureEnabled: e.target.checked } })} />
           <div className="note">Enregistrés par Sklip à part, puis calés automatiquement sur ta vidéo OBS.</div></div></div>
@@ -223,7 +241,7 @@ function App() {
   }
   return (
     <div className="app">
-      <Sidebar page={page} setPage={setPage} obs={obs} />
+      <Sidebar page={page} setPage={setPage} obs={obs} analysis={analysis} />
       <main className={page === 'montage' ? 'full' : ''}>
         {page === 'montage' && !session && <NoSession settings={settings} openSession={openSession} setPage={setPage} />}
         {page === 'montage' && session && <Editor key={session.stream.folder + session.theme} session={session} onBack={() => setPage('accueil')}

@@ -129,7 +129,8 @@ def cmd_analyze(p):
     return analyze_stream(p["video"], p["root"], p.get("title") or Path(p["video"]).stem, p.get("themes"),
                           p.get("target", 30.0), p.get("extra_moments"), p.get("extra_stats"), p.get("folder"),
                           p.get("day"), capture=p.get("capture"), record_started_at=p.get("record_started_at"),
-                          partial_scans=p.get("partial_scans"), segments=p.get("segments"), chat=p.get("chat"), agents_dir=p.get("agents_dir"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+                          partial_scans=p.get("partial_scans"), segments=p.get("segments"), chat=p.get("chat"), agents_dir=p.get("agents_dir"),
+                          known_tracks=p.get("known_tracks"), progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
 
 
 def cmd_scan_chunk(p):

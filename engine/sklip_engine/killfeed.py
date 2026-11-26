@@ -91,3 +91,19 @@ def knife_kills(video: str, events: list[KillEvent]) -> list[float]:
         except Exception:
             continue                    # image illisible : le kill reste un kill normal
     return out
+
+
+def confirm_kills(video: str, events: list[KillEvent], frame=None) -> list[KillEvent]:
+    """Garde les emblèmes « pâles » quand une ligne « allié tue ennemi » de plus apparaît dans le fil juste après."""
+    frame = frame or (lambda t: _frame(video, t))
+    out = []
+    for e in events:
+        try:
+            before = frame(e.t - LOOK_BEFORE)
+            n0 = len(weapon_icons(before)) if before is not None else 0
+            n1 = max((len(weapon_icons(f)) for f in (frame(e.t + d) for d in LOOK_AFTER) if f is not None), default=0)
+            if n1 > n0:
+                out.append(e)
+        except Exception:
+            continue
+    return out

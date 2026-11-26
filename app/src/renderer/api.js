@@ -6,7 +6,7 @@ let twitchState = { connected: false };
 const mock = (() => {
   let settings = {
     obs: { url: 'ws://127.0.0.1:4455', password: '', autoRecord: true },
-    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 30, formats: ['9x16', '16x9'],
+    analysisMode: 'end_of_stream', themes: ['kills', 'drole'], targetDuration: 60, formats: ['9x16', '16x9'],
     audio: { captureEnabled: true, volumes: { game: 1, mic: 1, discord: 1, music: 0 } }, markerHotkey: 'F9', retentionDays: 7,
     cam: { x: 0, y: 0, w: 0.22, h: 0.3 }, friends: [{ login: 'kamel', autoAccept: true }], firstRunDone: false, editorTourDone: false, pcTest: null,
   };
@@ -54,7 +54,8 @@ const mock = (() => {
     liveThumb: async (folder) => (typeof window !== 'undefined' && window.__demoThumbs ? window.__demoThumbs[folder] : null) || null,
     openVideo: async () => null,
     analyzeVideo: async () => ({ folder: 'demo' }),
-    analysisStatus: async () => ({ running: false }),
+    reanalyze: async () => { await new Promise((r) => setTimeout(r, 1500)); return { folder: 'demo' }; },
+    analysisStatus: async () => { try { const d = JSON.parse(localStorage.getItem('demoAnalysis') || 'null'); if (d) return { ...d, startedAt: Date.now() - d.ago * 1000 }; } catch { /* aperçu */ } return { running: false }; },
     editorSession: async (_f, theme) => ({ ...DEMO_SESSION, theme: theme || 'kills', themes: ['kills', 'drole'] }),
     onAnalysisState: noop, onAnalysisDone: noop,
     saveSticker: async (_f, name) => `demo/${name}.png`,

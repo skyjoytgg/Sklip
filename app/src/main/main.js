@@ -109,7 +109,10 @@ async function engine(command, params = {}) {
   log.info(`Moteur : ${command}`);
   const t0 = Date.now();
   try {
-    const r = await runEngine(engineLocation(), command, params, (p) => send('engine:progress', { command, ...p }));
+    const r = await runEngine(engineLocation(), command, params, (p) => {
+      if (command === 'analyze' && analysisRunning) Object.assign(analysisRunning, { fraction: p.fraction, message: p.message });
+      send('engine:progress', { command, ...p });
+    });
     log.info(`Moteur : ${command} terminé en ${Math.round((Date.now() - t0) / 1000)} s`);
     return r;
   } catch (e) {
@@ -131,8 +134,8 @@ async function runAnalysis(video, rec = {}) {
   const extras = pipeline.twitchExtras(tw, rec.start);
   const extraMoments = [...extras.moments, ...pipeline.markerMoments(rec.markers || [], rec.start)];
   const title = rec.title || pipeline.streamTitle(extras.title, rec.start ? new Date(rec.start) : new Date());
-  analysisRunning = { video, startedAt: Date.now() };
-  send('analysis:state', { running: true, video, title });
+  analysisRunning = { video, title, startedAt: Date.now(), fraction: 0 };
+  send('analysis:state', { running: true, ...analysisRunning });
   const t0 = Date.now();
   if (rec.start) {
     const n = rec.partialScans ? rec.partialScans.length : 0;
@@ -167,6 +170,48 @@ async function runAnalysis(video, rec = {}) {
   } catch (e) {
     if (rec.start) jadd('analysis', "L'analyse a échoué", { detail: String((e && e.message) || e), level: 'error' });
     throw e;
+  } finally {
+    analysisRunning = null;
+    send('analysis:state', { running: false });
+  }
+}
+
+/**
+ * Réanalyse un live déjà analysé (nouvelle version de la détection, marges des clips…) dans le même dossier.
+ * Reprend ce qui venait du live et ne peut plus être relu : Twitch (raids, chat, clips viewers), marqueurs,
+ * pistes audio calées, passages OBS. L'image (le plus long) est en cache : quelques minutes au lieu d'une heure.
+ * Les montages déjà retouchés sont mis de côté (.sklip/avant-reanalyse), jamais supprimés.
+ */
+async function reanalyze(folder) {
+  if (analysisRunning) throw new Error('Une analyse est déjà en cours.');
+  const old = loadSession(folder);
+  if (!old || !old.video || !fs.existsSync(old.video)) throw new Error("La vidéo de ce live est introuvable (déplacée ou supprimée ?).");
+  const s = settings.get();
+  const LIVE_TYPES = ['raid', 'chat_spike', 'viewer_clip', 'viewer_peak', 'marker'];
+  const extraMoments = (old.moments || []).filter((m) => LIVE_TYPES.includes(m.type))
+    .map((m) => { const { boost, ...meta } = m.meta || {}; return { type: m.type, t: m.t, meta }; });
+  analysisRunning = { video: old.video, title: old.title, startedAt: Date.now(), fraction: 0 };
+  send('analysis:state', { running: true, ...analysisRunning });
+  try {
+    const keep = path.join(folder, '.sklip', 'avant-reanalyse');
+    for (const f of fs.readdirSync(folder).filter((n) => /^montage-[\w-]+\.json$/.test(n))) {
+      fs.mkdirSync(keep, { recursive: true });
+      fs.renameSync(path.join(folder, f), path.join(keep, f));
+    }
+    fs.copyFileSync(path.join(folder, 'session.json'), path.join(folder, '.sklip', 'session-avant-reanalyse.json'));
+    const agentsDir = await agentsService().ensureIcons().catch(() => null);
+    const session = await engine('analyze', {
+      video: old.video, root: libraryRoot(), folder, title: old.title,
+      themes: s.themes, target: s.targetDuration, extra_moments: extraMoments,
+      extra_stats: { peak_viewers: (old.stats || {}).peak_viewers, raids: (old.stats || {}).raids || [] },
+      record_started_at: old.record_started_at || undefined,
+      segments: (old.segments || []).some((x) => x.type) ? old.segments : undefined,
+      chat: old.chat && old.chat.length ? old.chat : undefined,
+      known_tracks: old.tracks || undefined, agents_dir: agentsDir || undefined,
+    });
+    log.info(`Réanalyse terminée : ${session.moments.length} moments → ${folder}`);
+    send('analysis:done', { folder, title: session.title, stats: session.stats });
+    return { folder };
   } finally {
     analysisRunning = null;
     send('analysis:state', { running: false });
@@ -469,6 +514,10 @@ app.whenReady().then(() => {
     try { return `data:image/jpeg;base64,${fs.readFileSync(out).toString('base64')}`; } catch { return null; }
   });
   ipcMain.handle('analysis:start', (_e, video) => runAnalysis(video));
+  ipcMain.handle('analysis:again', (_e, folder) => {
+    if (!inLibrary(folder)) throw new Error('Dossier hors de la bibliothèque Sklip');
+    return reanalyze(folder);
+  });
   ipcMain.handle('analysis:status', () => (analysisRunning ? { running: true, ...analysisRunning } : { running: false }));
   ipcMain.handle('project:save', (_e, folder, theme, project) => {
     if (!folder || !fs.existsSync(path.join(folder, 'session.json')) || !/^[\w-]+$/.test(theme)) return false;

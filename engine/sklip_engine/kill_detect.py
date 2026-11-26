@@ -354,5 +354,29 @@ def alive_checker(scan: Scan, spectate_on: float = SPECTATE_ON):
     return is_alive
 
 
+WEAK_ON = 11.0          # emblème « pâle » : certains emblèmes (3e kill du round sur fond clair, 20:09 du live du 26/11)
+WEAK_PEAK = 13.0        # ne montent qu'à ~15-19 ; on ne les garde que si le fil des kills confirme (killfeed.confirm_kills)
+WEAK_DUR = (0.75, 3.5)
+
+
+def weak_kill_candidates(scan: Scan, known: list[KillEvent], noisy_margin: float = NOISY_MARGIN,
+                         spectate_on: float = SPECTATE_ON) -> list[KillEvent]:
+    """Apparitions trop faibles pour find_kills, à confirmer par le fil des kills."""
+    long_segs = [(i, j) for i, j in _segments(scan.banner >= BANNER_ON) if (j - i) / scan.fps > BANNER_MAX_DUR]
+    noisy = [scan.t[i] for i, _ in long_segs] + [scan.t[j - 1] for _, j in long_segs]
+    out = []
+    for i, j in _segments(scan.banner >= WEAK_ON):
+        t, dur = float(scan.t[i]), (j - i) / scan.fps
+        peak = float(scan.banner[i:j].max())
+        if not (WEAK_DUR[0] <= dur <= WEAK_DUR[1]) or not (WEAK_PEAK <= peak < BANNER_PEAK_MIN):
+            continue
+        if any(abs(t - e.t) < 2.0 for e in known) or any(abs(t - x) <= noisy_margin for x in noisy):
+            continue
+        if float(np.median(scan.spectate[i:j])) >= spectate_on:
+            continue
+        out.append(KillEvent(t=t, duration=dur, peak=peak, spectating=False, meta={"weak": True}))
+    return out
+
+
 def streamer_kills(scan: Scan, **kw) -> list[KillEvent]:
     return [e for e in find_kills(scan, **kw) if not e.spectating]

@@ -44,7 +44,7 @@ test('rognage calé sur le BPM', () => {
 test('ajouter un moment, retirer un clip', () => {
   let p = m.addMoment(base(), { type: 'raid', t: 2000 }, 1);
   assert.strictEqual(p.clips.length, 4);
-  assert.deepStrictEqual([p.clips[1].start, p.clips[1].end], [1996, 2002]);
+  assert.deepStrictEqual([p.clips[1].start, p.clips[1].end], [1970, 2008]);
   assert.ok(m.isMomentUsed(p, { t: 2000 }));
   p = m.removeClip(p, p.clips[1].id);
   assert.ok(!m.isMomentUsed(p, { t: 2000 }));
@@ -218,4 +218,34 @@ test("répliques des coéquipiers : affichées, modifiées, ajoutées, placées"
   assert.equal(pl.agent.y + Math.round(pl.agent.w * 2), 1920);       // collé en bas de l'image
   assert.ok(pl.text.y >= 640);                                       // texte sous la cam
   assert.ok(m.voicePlacement('16x9', 'cam_top').agent.x > 960);      // 16:9 : agent à droite
+});
+
+test("aperçu d'un moment sans l'ajouter : même découpe, mise en page du clip qui le contient", () => {
+  const p = base();
+  const m = { type: 'laugh', t: 543, meta: {} };
+  const m_peek = require('../src/renderer/editor-model').peekProject;
+  const peek = m_peek(p, m, [{ start: 540, end: 550, layout: 'cam_full', focus: { x: 0.4, y: 0.5 } }]);
+  assert.strictEqual(peek.clips.length, 1);
+  assert.deepStrictEqual([peek.clips[0].start, peek.clips[0].end, peek.clips[0].layout], [513, 551, 'cam_full']);
+  assert.strictEqual(p.clips.length, 3);                       // le montage n'a pas bougé
+});
+
+test('moments retirés de la liste : retirés, gardés dans le projet, remis', () => {
+  const mm = require('../src/renderer/editor-model');
+  const k = { type: 'laugh', t: 543.04 };
+  let p = mm.hideMoment(base(), k);
+  assert.ok(mm.isMomentHidden(p, k));
+  assert.ok(!mm.isMomentHidden(p, { type: 'kill', t: 543.04 }));
+  assert.ok(mm.isMomentHidden(JSON.parse(JSON.stringify(p)), { type: 'laugh', t: 543.0 }));   // relu depuis le fichier
+  p = mm.hideMoment(p, k, false);
+  assert.ok(!mm.isMomentHidden(p, k));
+  assert.strictEqual(p.clips.length, 3);
+});
+
+test('contexte autour des moments : 30 s avant, multi-kill depuis le 1er kill, clip viewer avant sa création', () => {
+  const w = (mo) => { const x = m.momentWindow(mo); return [x.start, x.end]; };
+  assert.deepStrictEqual(w({ type: 'laugh', t: 600 }), [570, 608]);
+  // live du 26/11 : kills à 19:44, 20:03 et 20:09 (multi-kill ×3)
+  assert.deepStrictEqual(w({ type: 'multikill', t: 1208.75, meta: { t_start: 1183.75 } }), [1173.75, 1216.75]);
+  assert.deepStrictEqual(w({ type: 'viewer_clip', t: 1318 }), [1293, 1326]);
 });

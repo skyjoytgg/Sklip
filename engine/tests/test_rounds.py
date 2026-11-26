@@ -101,4 +101,4 @@ def test_clip_couvre_tout_le_multikill():
     rs = [Round(0, 1, 0, 100)]
     [m] = group_kills([20, 31], rs)
     [c] = moments_to_clips([m])
-    assert (c.start, c.end) == (16.0, 33.0)
+    assert (c.start, c.end) == (14.0, 36.0)      # 6 s avant le 1er kill, 5 s après le dernier

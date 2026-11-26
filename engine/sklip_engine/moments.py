@@ -4,9 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Iterable
 
-# Découpe autour d'un moment (cahier des charges : ~4 s avant, ~2 s après).
-PRE_ROLL = 4.0
-POST_ROLL = 2.0
+# Découpe autour d'un moment. Au départ 4 s avant / 2 s après, mais Sky (26/11) : « 6 secondes c'est trop court,
+# on n'a pas le contexte ni le temps de voir toute l'action » -> on prend large, le streamer rogne dans l'éditeur.
+PRE_ROLL = 12.0
+POST_ROLL = 5.0
+COMBO_LEAD = 6.0                     # multi-kill / ace / clutch : s avant le premier kill
+VIEWER_CLIP = (25.0, 6.0)            # un clip viewer est créé APRÈS l'action : on remonte ~25 s avant
+MAX_CLIP = 60.0
 
 # Score de base par type (plus c'est haut, plus le moment est prioritaire).
 BASE_SCORES: dict[str, float] = {
@@ -113,8 +117,14 @@ def moments_to_clips(moments: Iterable[Moment], pre: float = PRE_ROLL, post: flo
     clips: list[Clip] = []
     for m in ms:
         # Un multi-kill / ace couvre du premier kill (meta.t_start) au dernier (m.t).
-        start = max(0.0, float(m.meta.get("t_start", m.t)) - pre)
-        end = m.t + post
+        if m.type == "viewer_clip" and pre == PRE_ROLL:
+            b, a = VIEWER_CLIP
+        else:
+            b, a = pre, post
+        first = float(m.meta.get("t_start", m.t))
+        start = max(0.0, min(m.t - b, first - (COMBO_LEAD if pre == PRE_ROLL else b)))
+        end = m.t + a
+        start = max(start, end - MAX_CLIP)
         if stream_duration is not None:
             end = min(end, stream_duration)
         if clips and start <= clips[-1].end:

@@ -11,16 +11,25 @@ from sklip_engine.beat import estimate_bpm, beat_grid, BEAT_RATE
 
 # ---------- Moments et sélection ----------
 
-def test_fenetre_4s_avant_2s_apres():
+def test_fenetre_large_12s_avant_5s_apres():
+    # Sky (26/11) : 6 s c'est trop court, on ne voit pas l'action -> on prend large, le streamer rogne.
     [c] = moments_to_clips([Moment("kill", 100.0)])
-    assert (c.start, c.end) == (96.0, 102.0)
+    assert (c.start, c.end) == (88.0, 105.0)
+    # un clip viewer est créé après l'action : on remonte ~25 s avant
+    [v] = moments_to_clips([Moment("viewer_clip", 1318.0)])
+    assert (v.start, v.end) == (1293.0, 1324.0)
+
+
+def test_meilleur_clip_garde_meme_si_plus_long_que_la_cible():
+    [c] = select_clips([Moment("ace", 300, meta={"count": 5, "t_start": 270})], "kills", target=15)
+    assert c.end == 305 and c.duration == pytest.approx(15)
 
 
 def test_kills_proches_fusionnes_en_un_clip():
     ms = [Moment("kill", 100), Moment("kill", 101.5), Moment("kill", 103), Moment("kill", 200)]
     clips = moments_to_clips(ms)
     assert len(clips) == 2
-    assert (clips[0].start, clips[0].end) == (96.0, 105.0)
+    assert (clips[0].start, clips[0].end) == (88.0, 108.0)
     assert len(clips[0].moments) == 3
 
 
@@ -28,22 +37,22 @@ def test_selection_respecte_le_theme_et_la_duree():
     ms = [Moment("kill", 50), Moment("ace", 300), Moment("raid", 400, meta={"viewers": 80}),
           Moment("multikill", 600, meta={"count": 3}), Moment("kill", 900), Moment("clutch", 1200),
           Moment("kill", 1500), Moment("kill", 1800), Moment("kill", 2100)]
-    clips = select_clips(ms, "kills", target=20)
+    clips = select_clips(ms, "kills", target=60)
     types = {m.type for c in clips for m in c.moments}
     assert "raid" not in types
-    assert sum(c.duration for c in clips) <= 20.5
+    assert sum(c.duration for c in clips) <= 60.5
     assert {"ace", "clutch", "multikill"} <= types  # les plus forts d'abord
     assert [c.start for c in clips] == sorted(c.start for c in clips)
 
 
 def test_duree_bornee_15_60():
     ms = [Moment("kill", 100 * i) for i in range(1, 30)]
-    assert sum(c.duration for c in select_clips(ms, "kills", target=500)) <= 60.5
+    assert sum(c.duration for c in select_clips(ms, "kills", target=900)) <= 300.5   # 5 min max
 
 
 def test_theme_perso():
     ms = [Moment("raid", 10), Moment("ace", 100), Moment("laugh", 200)]
-    clips = select_clips(ms, ["ace", "laugh"], target=15)
+    clips = select_clips(ms, ["ace", "laugh"], target=40)
     assert {m.type for c in clips for m in c.moments} == {"ace", "laugh"}
 
 

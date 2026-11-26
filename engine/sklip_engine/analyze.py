@@ -12,7 +12,7 @@ import json
 import os
 from datetime import date
 
-from .kill_detect import Scan, _probe, alive_checker, find_deaths, find_kills, refine_kills, scan_video
+from .kill_detect import Scan, _probe, alive_checker, find_deaths, find_kills, refine_kills, scan_video, weak_kill_candidates
 from .moments import BASE_SCORES, THEMES, Moment
 from .ranking import funny_deaths, rank_moments
 from .rounds import Hud, find_clutches, group_kills, read_hud, rounds_from_scores
@@ -41,7 +41,8 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
                    folder: str | None = None, day: str | None = None, scan: Scan | None = None,
                    hud: Hud | None = None, capture: dict | None = None, partial_scans: list[str] | None = None,
                    record_started_at: float | None = None, segments: list[dict] | None = None, progress=None,
-                   chat: list[dict] | None = None, agents_dir: str | None = None) -> dict:
+                   chat: list[dict] | None = None, agents_dir: str | None = None,
+                   known_tracks: dict | None = None) -> dict:
     """Analyse `video` et prépare le dossier du stream. Renvoie la session (aussi écrite dans session.json)."""
     report = progress or (lambda f, m: None)
     themes = [t for t in (themes or ["kills"]) if t in THEMES] or ["kills"]
@@ -91,8 +92,9 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
             json.dump({"cam": cam}, f)
 
     # 3. Les pistes audio capturées par Sklip pendant le live, calées sur la vidéo.
-    tracks = {}
-    if capture and capture.get("info") and capture.get("record_started_at"):
+    # Réanalyse : les pistes déjà calées la première fois (session.json) sont reprises telles quelles.
+    tracks = {k: v for k, v in (known_tracks or {}).items() if v and os.path.exists(v.get("path", ""))}
+    if not tracks and capture and capture.get("info") and capture.get("record_started_at"):
         report(0.95, "Calage des pistes audio")
         from .audio_capture import tracks_for_video
         tracks = tracks_for_video(capture["info"], capture["record_started_at"], video)
@@ -123,6 +125,11 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
 
     report(0.96, "Choix des meilleurs moments")
     events = refine_kills(video, find_kills(scan))     # kills très rapprochés : relecture fine de l'emblème
+    from .killfeed import confirm_kills
+    try:                                                 # emblèmes pâles confirmés par le fil des kills
+        events = sorted(events + confirm_kills(video, weak_kill_candidates(scan, events)), key=lambda e: e.t)
+    except Exception:
+        pass
     kill_times = [round(e.t, 2) for e in events if not e.spectating]
     deaths = [round(d, 2) for d in find_deaths(scan)]
     rounds = rounds_from_scores(hud.t, hud.scores)

@@ -2,6 +2,8 @@
 // Fonctions pures, testées dans test/twitch.test.js.
 // Tous les temps sont en secondes depuis le début du live (« temps du stream »).
 
+const { isViewerMessage, cleanChatText } = require('./chat-bots');
+
 const BASE_CHAT_KEYWORDS = ['LUL', 'KEKW', 'OMEGALUL', 'LULW', 'ICANT', 'Kappa', 'PogChamp', 'Pog', 'PogU', 'WutFace'];
 
 const toStreamTime = (isoOrMs, streamStartMs) =>
@@ -114,8 +116,8 @@ function viewerClipMoments(clips, streamStartMs) {
  */
 function chatInRecordingTime(messages, recordStartMs) {
   return (messages || [])
-    .filter((m) => m && m.text && !/^!/.test(m.text.trim()))
-    .map((m) => ({ t: Math.round(toStreamTime(m.at, recordStartMs) * 100) / 100, user: m.user, text: m.text,
+    .filter(isViewerMessage)                       // ni bots (WizeBot…) ni commandes « !… »
+    .map((m) => ({ t: Math.round(toStreamTime(m.at, recordStartMs) * 100) / 100, user: m.user, text: cleanChatText(m.text),
       color: m.color || null, badges: m.badges || [] }))
     .filter((m) => m.t >= 0);
 }

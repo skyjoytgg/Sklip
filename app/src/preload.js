@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('sklip', {
   openLogs: () => ipcRenderer.invoke('log:openFolder'),
   analyzeVideo: (video) => ipcRenderer.invoke('analysis:start', video),
   analysisStatus: () => ipcRenderer.invoke('analysis:status'),
+  reanalyze: (folder) => ipcRenderer.invoke('analysis:again', folder),
   editorSession: (folder, theme) => ipcRenderer.invoke('session:editor', folder, theme),
   onAnalysisState: on('analysis:state'),
   onAnalysisDone: on('analysis:done'),

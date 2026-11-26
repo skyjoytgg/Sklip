@@ -62,7 +62,13 @@ const TILES = [
 function LiveDetail({ folder, onBack, openSession }) {
   const [live, setLive] = useState(null);
   const [cat, setCat] = useState('all');
+  const [again, setAgain] = useState(null);       // null | 'ask' | 'busy' | 'done' | message d'erreur
   useEffect(() => { api.liveGet(folder).then(setLive); }, [folder]);
+  const reanalyze = () => {
+    setAgain('busy');
+    api.reanalyze(folder).then(() => { setAgain('done'); return api.liveGet(folder).then(setLive); })
+      .catch((e) => setAgain(String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')));
+  };
   const events = useMemo(() => (live ? M.buildEvents({ moments: live.moments, journal: live.journal, startMs: live.startMs }) : []), [live]);
   const shown = useMemo(() => M.filterEvents(events, cat), [events, cat]);
   if (!live) return null;
@@ -80,7 +86,21 @@ function LiveDetail({ folder, onBack, openSession }) {
           <div className="row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={() => openSession(folder)} disabled={!live.clips.length}>Monter les clips</button>
             <button className="btn ghost" onClick={() => api.openFolder(folder)}>Dossier</button>
+            <button className="btn ghost" disabled={again === 'busy'} onClick={() => setAgain('ask')}
+              title="Refaire la détection avec la dernière version de Sklip">{again === 'busy' ? 'Réanalyse en cours…' : 'Réanalyser'}</button>
           </div>
+          {again === 'ask' && (
+            <div className="card" style={{ marginTop: 12, padding: 14 }}>
+              <div>Refaire la détection de ce live avec la dernière version de Sklip (nouveaux kills repérés, clips plus larges).
+                Quelques minutes : l'image a déjà été lue.</div>
+              <div className="note" style={{ marginTop: 6 }}>Tes montages déjà retouchés sont mis de côté dans le dossier du live (jamais supprimés). La vidéo OBS n'est pas touchée.</div>
+              <div className="row" style={{ marginTop: 10 }}>
+                <button className="btn" onClick={reanalyze}>Réanalyser</button>
+                <button className="btn ghost" onClick={() => setAgain(null)}>Annuler</button>
+              </div>
+            </div>)}
+          {again === 'done' && <div className="note" style={{ marginTop: 10 }}>✓ Réanalyse terminée : les clips sont à jour.</div>}
+          {again && !['ask', 'busy', 'done'].includes(again) && <div className="note" style={{ marginTop: 10, color: '#ff6b6b' }}>Réanalyse impossible : {again}</div>}
         </div>
       </div>
       <div className="lv-tiles">

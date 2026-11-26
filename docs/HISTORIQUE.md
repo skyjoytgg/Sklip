@@ -629,3 +629,20 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   Pas encore testé : une vraie réaction entre deux PC.
 - Piège trouvé : les commandes lancées depuis l'appli Claude écrivent dans une copie privée de %APPDATA% ;
   le Python 3.13 de uv (utilisé par `engine\.venv`) n'existait que là → copié dans le vrai `%APPDATA%\uv\python`.
+
+### 14 nonies. Après le premier vrai live (26/11/2026)
+- **Progression de l'analyse** : pastille « Analyse 42 % · environ N min » dans la barre de gauche et sur l'accueil.
+- **Éditeur** : clic sur un moment = aperçu sans l'ajouter (« + Ajouter au montage » / « ✕ Revenir ») ;
+  **✕** sur une ligne pour retirer un moment de la liste (« Voir les N moments retirés » → « Remettre »), gardé dans le montage.
+- **Bots du chat** (WizeBot, Nightbot…, pseudos en « bot ») et commandes « ! » jamais en bulle (`chat-bots.js`).
+- **Clips plus larges** (Sky : « 6 secondes c'est trop court, on n'a pas le contexte ») :
+  montages auto 12 s avant / 5 s après (multi-kill : 6 s avant le 1er kill ; clip viewer : 25 s avant, il est créé
+  après l'action), fin prolongée jusqu'à 8 s tant que le streamer parle ; éditeur (aperçu / « + Ajouter ») 30 s avant / 8 s après.
+  Le streamer rogne ensuite.
+- **Durée des montages** : 30 s, **1 min (défaut)**, 2, 3 ou 5 min. L'ancien défaut 30 s passe à 1 min une fois.
+- **Kill raté** (live du 26/11, 20:09, 3e kill du round) : emblème pâle sur fond clair (score 19 < 30). 2e passage :
+  emblème pâle gardé seulement si une ligne « allié tue ennemi » de plus apparaît dans le fil des kills.
+  Sur les 3 h : 13 candidats, 1 confirmé (le bon), aucun faux kill.
+- **Réanalyser** (page du live) : même dossier, image en cache (~2 min), reprend Twitch / marqueurs / pistes / passages ;
+  les montages retouchés vont dans `.sklip/avant-reanalyse`.
+- **Mises à jour** : electron-updater télécharge la nouvelle version au lancement, installée à la fermeture de Sklip.

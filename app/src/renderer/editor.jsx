@@ -4,7 +4,7 @@ import * as M from './editor-model.js';
 import { MOMENT_INFO } from './demo-data.js';
 import { api } from './api.js';
 import { Tour, EDITOR_TOUR, tourSteps } from './tour.jsx';
-import { THEMES } from './constants.js';
+import { THEMES, durationLabel } from './constants.js';
 import { chatBubbleImage, userColor } from './chat-bubble.js';
 import { voiceTextImage } from './voice-card.js';
 
@@ -377,6 +377,13 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
   const [selected, setSelected] = useState(project.clips[0]?.id || null);
   const [exportState, setExportState] = useState(null);
   const player = usePlayer(project);
+  // Aperçu d'un moment détecté (clic sur la liste) sans l'ajouter au montage.
+  const [peek, setPeek] = useState(null);
+  const peekP = useMemo(() => (peek ? M.peekProject(project, peek, [...project.clips, ...(session.clips || [])]) : { ...project, clips: [] }),
+    [peek, project.fmt, project.texts, project.volumes]);
+  const peekPlayer = usePlayer(peekP);
+  useEffect(() => { if (peek) { player.setPlaying(false); peekPlayer.setT(0); peekPlayer.setPlaying(true); } }, [peek]);
+  const view = peek ? { project: peekP, player: peekPlayer } : { project, player };
   const clip = project.clips.find((c) => c.id === selected);
   const [subsJob, setSubsJob] = useState(null);
   const [friendMsg, setFriendMsg] = useState(null);
@@ -431,7 +438,8 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
   useEffect(() => {
     const onKey = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;   // on écrit : pas de raccourci
-      if (e.code === 'Space') { e.preventDefault(); player.setPlaying(!player.playing); }
+      if (e.code === 'Space') { e.preventDefault(); view.player.setPlaying(!view.player.playing); }
+      if (e.key === 'Escape' && peek) setPeek(null);
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         setProject((p) => M.removeClip(p, selected)); setSelected(null);
       }
@@ -441,6 +449,8 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
   });
 
   const moments = useMemo(() => [...session.moments].sort((a, b) => a.t - b.t), [session]);
+  const [showHidden, setShowHidden] = useState(false);
+  const nHidden = moments.filter((m) => M.isMomentHidden(project, m)).length;
 
   // Webcam : réglage de ce stream (project.cam) s'il existe, sinon celle trouvée toute seule / le réglage de base.
   const [camOpen, setCamOpen] = useState(false);
@@ -519,7 +529,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
               {(session.themes || [session.theme]).length > 1 ? (
                 <select value={session.theme} onChange={(e) => onTheme && onTheme(e.target.value)} style={{ padding: '2px 6px' }}>
                   {session.themes.map((t) => <option key={t} value={t}>{THEME_LABELS[t] || t}</option>)}</select>
-              ) : ` ${THEME_LABELS[session.theme] || session.theme}`} · cible {session.target} s</div>
+              ) : ` ${THEME_LABELS[session.theme] || session.theme}`} · cible {durationLabel(session.target)}</div>
           </div>
         </div>
         <div className="row">
@@ -545,29 +555,64 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
           <div className="list">
             {moments.map((m, i) => {
               const used = M.isMomentUsed(project, m);
+              const hidden = M.isMomentHidden(project, m);
+              if (hidden && !showHidden) return null;
+              const open = () => {
+                if (!used) { setPeek(peek === m ? null : m); return; }
+                // Déjà dans le montage : on y va directement.
+                const c = project.clips.find((x) => m.t >= x.start && m.t <= x.end);
+                setPeek(null);
+                if (c) { setSelected(c.id); seekStream(c, Math.max(c.start, m.t - 2)); player.setPlaying(true); }
+              };
               return (
-                <div key={i} className={'mrow' + (used ? ' used' : '')}>
+                <div key={i} className={'mrow clickable' + (used ? ' used' : '') + (hidden ? ' hidden' : '') + (peek === m ? ' peek' : '')}
+                  title={used ? 'Voir ce moment dans le montage' : 'Voir ce moment (sans l\'ajouter)'} onClick={open}>
                   <span className="mdot" style={{ background: info(m.type).color }} />
                   <div className="grow">
                     <div>{info(m.type).label}{m.meta?.count ? ` ×${m.meta.count}` : ''}{m.meta?.channel ? ` · ${m.meta.channel}` : ''}</div>
                     <div className="note">{M.fmtTime(m.t)}</div>
                   </div>
-                  {used ? <span className="note">dans le montage</span> : (
-                    <button className="btn ghost sm" onClick={() => {
-                      const p = M.addMoment(project, m);
-                      setProject(p); setSelected(p.clips[p.clips.length - 1].id);
-                    }}>+ Ajouter</button>)}
+                  {used ? <span className="note">dans le montage</span> : hidden ? (
+                    <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); setProject(M.hideMoment(project, m, false)); }}>Remettre</button>
+                  ) : (
+                    <>
+                      <button className="btn ghost sm" onClick={(e) => {
+                        e.stopPropagation();
+                        const p = M.addMoment(project, m);
+                        setPeek(null); setProject(p); setSelected(p.clips[p.clips.length - 1].id);
+                      }}>+ Ajouter</button>
+                      <button className="mhide" title="Retirer de la liste (je n'en veux pas)" onClick={(e) => {
+                        e.stopPropagation();
+                        if (peek === m) setPeek(null);
+                        setProject(M.hideMoment(project, m));
+                      }}>✕</button>
+                    </>)}
                 </div>);
             })}
           </div>
+          {nHidden > 0 && (
+            <button className="link" style={{ marginTop: 8 }} onClick={() => setShowHidden(!showHidden)}>
+              {showHidden ? 'Cacher les moments retirés' : `Voir les ${nHidden} moment${nHidden > 1 ? 's' : ''} retiré${nHidden > 1 ? 's' : ''}`}
+            </button>)}
         </section>
 
         <section className="stage" data-tour="preview">
-          <Preview project={project} player={player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} cam={cam}
+          {peek && (
+            <div className="peekbar">
+              <span>👁 Aperçu : <b>{info(peek.type).label}</b> à {M.fmtTime(peek.t)} <span className="note">(pas dans le montage)</span></span>
+              <span className="row nowrap">
+                <button className="btn sm" onClick={() => {
+                  const p = M.addMoment(project, peek);
+                  setPeek(null); setProject(p); setSelected(p.clips[p.clips.length - 1].id);
+                }}>+ Ajouter au montage</button>
+                <button className="btn ghost sm" onClick={() => setPeek(null)}>✕ Revenir au montage</button>
+              </span>
+            </div>)}
+          <Preview project={view.project} player={view.player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} cam={cam}
             camManual={['manual', 'project'].includes(camSource)} portraits={portraits} needPortrait={needPortrait} />
           <div className="transport">
-            <button className="btn sm" onClick={() => player.setPlaying(!player.playing)}>{player.playing ? '⏸ Pause' : '▶ Lire'}</button>
-            <span className="note">{M.fmtTime(player.t)} / {M.fmtTime(total)}</span>
+            <button className="btn sm" onClick={() => view.player.setPlaying(!view.player.playing)}>{view.player.playing ? '⏸ Pause' : '▶ Lire'}</button>
+            <span className="note">{M.fmtTime(view.player.t)} / {M.fmtTime(view.player.total)}</span>
           </div>
         </section>
 
@@ -726,8 +771,8 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
         </div>
       </div>
 
-      <Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player}
-        speech={session.speech} />
+      <div onPointerDownCapture={() => peek && setPeek(null)}><Timeline project={project} setProject={setProject} selected={selected} setSelected={setSelected} player={player}
+        speech={session.speech} /></div>
 
       {showTour && tourSteps(EDITOR_TOUR, tourSeen).length > 0 && <Tour steps={tourSteps(EDITOR_TOUR, tourSeen)} onDone={onTourDone} />}
 
