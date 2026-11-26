@@ -35,6 +35,7 @@ def test_decalage_des_pistes(tmp_path):
 
 
 @win
+@pytest.mark.skipif(bool(os.environ.get("GITHUB_ACTIONS")), reason="Pas de carte son sur les serveurs de GitHub")
 def test_capture_d_un_seul_logiciel(tmp_path):
     """Un processus joue un son de 1000 Hz : sa piste l'entend, la piste d'un autre processus reste muette."""
     from sklip_engine.audio_capture import capture
