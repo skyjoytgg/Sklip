@@ -688,3 +688,13 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
     derrière, ~2 min 15 gagnées sur 3 h), lecture vidéo `-skip_frame noref` (chat du jeu 14 → 9 s). Lire plusieurs
     passages du chat en même temps perdait des messages : non retenu. Pistes audio déjà en Opus.
   - Reste : cases de style (« ensuite »), publication TikTok / YouTube (« pas encore »), rires / cris à tester en vrai live.
+- **v0.1.8 (27/11)** :
+  - Clips « win » / « loose » : **2 s** (Sky : « 6 s → 2 s »), qui commencent à l'apparition de l'écran VICTOIRE / DÉFAITE
+    (`endgame.find_banners` relit les 4 s d'avant à 2 images/s : l'image clé tombait au milieu ou avant l'écran).
+  - **Best-of dans l'ordre du live** (Sky 27/11) : plus de « meilleur clip à la fin » (`finale_last` retiré).
+  - Éditeur : bouton **« 💬 Sous-titres »** en haut (toute la vidéo) ; listes séparées **« Chat du live (Twitch) »** et
+    **« Chat en jeu (Valorant) »** ; teaser sélectionné → panneau « ⚡ Teaser » + « Aller au clip entier » (le « pd »
+    introuvable : le teaser était sélectionné, ses coupes d'1 s n'ont pas de chat).
+  - Montage refait (menu Durée, réanalyse) : les choix de l'ancien montage sont repris (`editor-model.carryChoices` :
+    bulles cochées, répliques, sous-titres, textes, volumes, format, teaser enlevé).
+  - Live analysé avant la v0.1.7 : « Réanalyser » une fois pour avoir les win / loose / rr.

@@ -90,11 +90,11 @@ def test_best_of_60_s_reparti_entre_les_parties():
     assert 40 <= sum(c.duration for c in clips) <= 60.5
 
 
-def test_best_of_finit_sur_le_meilleur_clip():
+def test_best_of_dans_l_ordre_du_live():
     from sklip_engine.selection import select_clips
     ms = [Moment("kill", 500.0, 40, {"game": 0}), Moment("ace", 2000.0, 95, {"game": 1, "count": 5}),
           Moment("multikill", 4000.0, 60, {"game": 2, "count": 2}), Moment("kill", 6000.0, 45, {"game": 3})]
     clips = select_clips(ms, "bestof", 60)
-    assert clips[-1].moments[0].type == "ace"          # le meilleur à la fin…
-    rest = [c.start for c in clips[:-1]]
-    assert rest == sorted(rest)                         # …les autres dans l'ordre du live
+    # Sky 27/11 : ordre du live, le meilleur clip (l'ace) reste à sa place.
+    assert [c.start for c in clips] == sorted(c.start for c in clips)
+    assert any(c.moments[0].type == "ace" for c in clips)

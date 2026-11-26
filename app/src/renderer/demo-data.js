@@ -51,7 +51,7 @@ export const DEMO_SESSION = {
       color: '#FF69B4', badges: ['subscriber'], start: 1281.7, end: 1286.2, auto: true }] },
     { start: 2907, end: 2913 },
     { start: 4471, end: 4484 },
-    { start: 5225, end: 5231 },          // fin de partie classée : « loose » puis « rr-25 »
+    { start: 5225.8, end: 5227.8 },          // fin de partie classée : « loose » puis « rr-25 »
     { start: 5253.5, end: 5258.5 },
     { start: 7706, end: 7712 },
   ],

@@ -15,7 +15,7 @@ const COMBO_LEAD = 10.0;         // multi-kill / ace / clutch : s avant le premi
 // Un clip viewer est créé APRÈS l'action, et le viewer choisit son extrait jusqu'à ~90 s avant (Sky : 1 min à 1 min 30).
 const VIEWER_CLIP = { before: 85.0, after: 10.0 };
 // Fins de partie : le dernier round avant la bannière ; l'écran du rang ne dure que 1 à 3 s (avant : chargement).
-const TYPE_WINDOW = { victory: [1.0, 5.0], defeat: [1.0, 5.0], rr: [1.5, 3.5] };   // comme le moteur (selection.py)
+const TYPE_WINDOW = { victory: [0.2, 1.8], defeat: [0.2, 1.8], rr: [1.5, 3.5] };   // comme le moteur (selection.py)
 
 /** Fenêtre [début, fin] du clip proposé pour un moment. */
 function momentWindow(m) {
@@ -491,6 +491,43 @@ function toggleChat(p, id, m) {
   return updateClip(p, id, { chat: [...(c.chat || []), b].sort((x, y) => x.start - y.start) });
 }
 
+/**
+ * Montage refait (menu « Durée », réanalyse) : reprend ce que le streamer avait choisi dans l'ancien montage
+ * (Sky 26/11 : « je n'ai plus le message pd ») : bulles du chat cochées, répliques affichées, sous-titres, textes,
+ * volumes, format, teaser enlevé. Une bulle ou une réplique n'est reprise que si son instant tombe dans un nouveau clip.
+ */
+function carryChoices(p, previous) {
+  if (!previous || !previous.clips) return p;
+  const olds = previous.clips.filter((c) => !c.teaser);
+  const bubbles = olds.flatMap((c) => c.chat || []);
+  const voicesOn = olds.flatMap((c) => (c.voices || []).filter((v) => v.on));
+  const clips = p.clips.map((c) => {
+    if (c.teaser) return c;
+    const inside = (t) => t >= c.start && t < c.end;
+    let chat = [...(c.chat || [])];
+    for (const b of bubbles) {
+      if (!inside(b.start) || chat.some((x) => sameMsg(x, b))) continue;
+      chat.push({ ...b, end: Math.min(b.end, c.end) });
+    }
+    let voices = [...(c.voices || [])];
+    for (const v of voicesOn) {
+      if (!inside(v.start)) continue;
+      const k = voices.findIndex((x) => Math.abs(x.start - v.start) < 0.5 && x.text === v.text);
+      if (k >= 0) voices[k] = { ...voices[k], ...v };
+      else voices.push({ ...v, end: Math.min(v.end ?? c.end, c.end) });
+    }
+    chat = chat.sort((x, y) => x.start - y.start);
+    voices = voices.sort((x, y) => x.start - y.start);
+    return { ...c, chat, voices };
+  });
+  const out = { ...p, clips };
+  if (previous.texts) out.texts = { ...p.texts, ...previous.texts };
+  if (previous.volumes) out.volumes = { ...p.volumes, ...previous.volumes };
+  if (previous.fmt) out.fmt = previous.fmt;
+  if (previous.teaserOff && hasTeaser(out)) return setTeaser(out, false);
+  return out;
+}
+
 /** Déplace la bulle pour qu'elle commence à `t` (temps du stream), même durée, sans sortir du clip. */
 function moveChat(p, id, m, t) {
   const c = p.clips.find((x) => x.id === id);
@@ -672,7 +709,7 @@ module.exports = {
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
   momentWindow, splitClip, teaserCuts, setTeaser, hasTeaser, TEASER_MAX, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
-  chatNear, gameChatNear, gameChatFromSession, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
+  chatNear, gameChatNear, gameChatFromSession, carryChoices, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
   linesFromWords, lineText, setClipWords, setLineText, setLineOn, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

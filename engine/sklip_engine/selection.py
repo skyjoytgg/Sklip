@@ -92,7 +92,9 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
     chosen: list[Clip] = []
     total = 0.0
     if spec.get("spread"):
-        return add_ranked(finale_last(sorted(_spread(clips, target), key=lambda c: c.start)), ranked, finale=True)
+        # Ordre du live (Sky 27/11 : « ordre chronologique de base, sauf modification par le streamer ») :
+        # le meilleur clip n'est plus mis à la fin.
+        return add_ranked(sorted(_spread(clips, target), key=lambda c: c.start), ranked)
     for c in sorted(clips, key=lambda c: c.score, reverse=True):
         if total + c.duration <= target + 0.5:
             chosen.append(c)
@@ -109,9 +111,9 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
 
 # ---------- Fins de partie classée (Sky 26/11) ----------
 # À chaque partie classée (écran du rang lu), deux clips courts ajoutés en plus de la durée visée, à leur place
-# dans l'ordre du live : « win » / « loose » (l'écran VICTOIRE / DÉFAITE, ~6 s) puis « rr+16 » (les points, ~5 s).
+# dans l'ordre du live : « win » / « loose » (l'écran VICTOIRE / DÉFAITE, 2 s) puis « rr+16 » (les points, ~5 s).
 RANKED_THEMES = ("kills", "bestof")
-RESULT_WINDOW = (1.0, 5.0)     # s avant / après le début de l'écran VICTOIRE / DÉFAITE
+RESULT_WINDOW = (0.2, 1.8)     # s avant / après le début de l'écran VICTOIRE / DÉFAITE : 2 s (Sky : « 6 s → 2 s »)
 RR_WINDOW = (1.5, 3.5)         # s avant / après la lecture des points (l'écran reste 1 à 3 s)
 RESULT_BEFORE_RR = 180.0       # s : l'écran du rang arrive dans les 3 min après la fin de partie
 
@@ -131,14 +133,13 @@ def ranked_endings(moments: list[Moment]) -> list[Clip]:
     return out
 
 
-def add_ranked(chosen: list[Clip], ranked: list[Clip], finale: bool = False) -> list[Clip]:
-    """Place les clips de fin de partie dans l'ordre du live (avant le clip final du Best-of), sans chevauchement :
+def add_ranked(chosen: list[Clip], ranked: list[Clip]) -> list[Clip]:
+    """Place les clips de fin de partie dans l'ordre du live, sans chevauchement :
     si un clip retenu couvre déjà l'instant, il n'est pas ajouté ; sinon il est raccourci pour ne pas déborder."""
     out = list(chosen)
-    last = out.pop() if finale and out else None
     for r in ranked:
         t = r.moments[0].t
-        if any(c.start <= t <= c.end for c in out + ([last] if last else [])):
+        if any(c.start <= t <= c.end for c in out):
             continue
         for c in out:
             if c.start < r.end and r.start < c.end:
@@ -150,7 +151,7 @@ def add_ranked(chosen: list[Clip], ranked: list[Clip], finale: bool = False) -> 
             continue
         i = next((k for k, c in enumerate(out) if c.start > r.start), len(out))
         out.insert(i, r)
-    return out + ([last] if last else [])
+    return out
 
 
 SPREAD_PENALTY = 0.75   # chaque clip déjà pris dans la même partie divise l'intérêt des suivants par 4/3
@@ -161,14 +162,6 @@ def _game_of(c: Clip):
         if m.meta and m.meta.get("game") is not None:
             return m.meta["game"]
     return None
-
-
-def finale_last(clips: list[Clip]) -> list[Clip]:
-    """Best-of : dans l'ordre du live, mais le meilleur clip à la fin, pour finir en beauté (demande de Sky)."""
-    if len(clips) < 2:
-        return clips
-    best = max(clips, key=lambda c: (c.score, c.start))      # à égalité : le plus tardif, l'ordre du live bouge moins
-    return [c for c in clips if c is not best] + [best]
 
 
 def _spread(clips: list[Clip], target: float) -> list[Clip]:

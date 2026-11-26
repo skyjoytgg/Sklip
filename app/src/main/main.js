@@ -604,6 +604,13 @@ app.whenReady().then(() => {
     try { es.reactions = JSON.parse(fs.readFileSync(path.join(f, 'reactions.json'), 'utf8')); } catch { es.reactions = []; }
     es.recordStartedAt = loadSession(f).record_started_at || null;
     try { es.project = JSON.parse(fs.readFileSync(path.join(f, `montage-${es.theme}.json`), 'utf8')); } catch { es.project = null; }
+    // Montage refait (durée changée, réanalyse) : l'ancien, pour reprendre les choix du streamer (bulles cochées…).
+    es.previous = null;
+    if (!es.project) {
+      const olds = [path.join(f, `montage-${es.theme}.avant-duree.json`), path.join(f, '.sklip', 'avant-reanalyse', `montage-${es.theme}.json`)]
+        .filter((p) => fs.existsSync(p)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);   // le plus récent
+      try { if (olds.length) es.previous = JSON.parse(fs.readFileSync(olds[0], 'utf8')); } catch { /* illisible : sans */ }
+    }
     es.style = settings.get().learnStyle !== false ? style.profile(styleStore().all()) : null;
     return es;
   }

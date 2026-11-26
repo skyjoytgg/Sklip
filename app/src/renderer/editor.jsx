@@ -26,7 +26,9 @@ function initProject(session) {
   // Nouveau montage : ajusté aux habitudes du streamer (s'il en a), puis teaser au début, enlevable d'un clic.
   const styled = S.applyStyle(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' }), session.style);
   const p = { ...styled.project, learned: styled.changes };
-  return M.attachReactions(S.wantsTeaser(session.style) ? M.setTeaser(p) : p, session.reactions);
+  // Montage refait (durée changée, réanalyse) : tes choix de l'ancien montage sont repris.
+  const q = M.carryChoices(S.wantsTeaser(session.style) ? M.setTeaser(p) : p, session.previous);
+  return M.attachReactions(q, session.reactions);
 }
 
 // ---------- Lecture (aperçu) ----------
@@ -97,20 +99,22 @@ function ChatBubbleView({ b, fmt, layout }) {
   return <img className="pv-chat" src={img.url} alt="" style={{ left: `${(pl.x / W) * 100}%`, top: `${(pl.y / H) * 100}%`, width: `${(pl.w / W) * 100}%` }} />;
 }
 
-/** Messages du chat autour du clip : cocher = bulle sur la vidéo. Ceux que tu lis à voix haute sont cochés tout seuls. */
-function ChatPicker({ project, setProject, clip, chat, now, gameBusy }) {
-  const game = M.gameChatNear(clip);
-  const near = [...game, ...M.chatNear(chat, clip).slice(0, 40)].sort((a, b) => b.t - a.t);
-  const busy = gameBusy && clip.gameChat == null && <div className="note">Lecture du chat du jeu…</div>;
-  if (!chat.length && !near.length) {
-    if (busy) return busy;
-    return <div className="note">Pendant tes lives (Twitch connecté), Sklip garde les messages du chat : ceux que tu lis à voix haute
+/** Messages autour du clip : cocher = bulle sur la vidéo. Deux listes (Sky 27/11 : « je ne trouve pas où cocher
+ * le pd de l'ennemi ») : `source` = 'live' (chat Twitch ; ceux que tu lis à voix haute sont cochés tout seuls)
+ * ou 'game' (chat écrit dans Valorant, lu dans l'image). */
+function ChatPicker({ project, setProject, clip, chat, now, gameBusy, source = 'live' }) {
+  const game = source === 'game';
+  const near = game ? [...M.gameChatNear(clip)].sort((a, b) => a.t - b.t) : M.chatNear(chat, clip).slice(0, 40).sort((a, b) => b.t - a.t);
+  if (game) {
+    if (gameBusy && clip.gameChat == null) return <div className="note">Lecture du chat du jeu…</div>;
+    if (!near.length) return <div className="note">Personne n'a écrit dans le chat de Valorant pendant ce clip (ou Sklip ne l'a pas vu).</div>;
+  } else {
+    if (!chat.length) return <div className="note">Pendant tes lives (Twitch connecté), Sklip garde les messages du chat : ceux que tu lis à voix haute
       s'affichent tout seuls, et tu pourras en ajouter ici.</div>;
+    if (!near.length) return <div className="note">Aucun message dans le chat Twitch pendant ce clip ni juste avant.</div>;
   }
-  if (!near.length) return busy || <div className="note">Aucun message dans le chat pendant ce clip ni juste avant.</div>;
   return (
     <div className="chatpick">
-      {busy}
       {near.map((m) => {
         const shown = (clip.chat || []).find((b) => b.t === m.t && b.user === m.user && b.text === m.text);
         const ago = clip.start - m.t;
@@ -121,8 +125,8 @@ function ChatPicker({ project, setProject, clip, chat, now, gameBusy }) {
               <span><b style={{ color: m.game ? m.color : userColor(m.user, m.color) }}>{m.user}</b> : {m.text}</span>
             </label>
             <div className="note">
-              {m.game && <span className={'gtag ' + m.team}>{m.team === 'ally' ? 'jeu · allié' : 'jeu · ennemi'}</span>}
-              {ago > 0 ? `${Math.round(ago)} s avant le clip` : 'pendant le clip'}
+              {m.game && <span className={'gtag ' + m.team}>{m.team === 'ally' ? 'allié' : 'ennemi'}</span>}
+              {ago > 0 ? `${Math.round(ago)} s avant le clip` : `pendant le clip (${M.fmtTime(m.t - clip.start)})`}
               {shown && shown.auto ? ' · lu par toi' : ''}
               {shown && <button className="link" onClick={() => setProject(M.moveChat(project, clip.id, m, now))}>Afficher à partir d'ici</button>}
             </div>
@@ -223,7 +227,7 @@ function Preview({ project, player, videoSrc, cam, camManual = false, portraits 
         {clip && M.chatAt(clip, clip.start + player.local).map((b) => (
           <ChatBubbleView key={`${b.t}-${b.user}`} b={b} fmt={project.fmt} layout={layout} />))}
         {project.texts.enabled && project.texts.pseudo && <div className="pv-pseudo">{project.texts.pseudo}</div>}
-        {project.texts.subtitles && clip && (() => {
+        {project.texts.subtitles && clip && !clip.teaser && (() => {
           const st = M.subtitleAt(clip, clip.start + player.local);
           if (!st) return null;
           return <div className={'pv-sub' + (vertical ? '' : ' h')}>{st.words.map((w, i) => (
@@ -698,6 +702,10 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
             title={M.hasTeaser(project) ? 'Enlever le teaser du début' : 'Mettre au début les meilleurs instants en coupes rapides (3 s)'}
             onClick={() => setProject(M.setTeaser(project, !M.hasTeaser(project)))}>
             ⚡ Teaser{M.hasTeaser(project) ? ' ✓' : ''}</button>
+          <button className={'btn ghost sm' + (project.texts.subtitles ? ' on' : '')} data-tour="subs-all"
+            title={project.texts.subtitles ? 'Enlever les sous-titres de toute la vidéo' : 'Mettre les sous-titres sur toute la vidéo'}
+            onClick={() => setProject({ ...project, texts: { ...project.texts, subtitles: !project.texts.subtitles } })}>
+            💬 Sous-titres{project.texts.subtitles ? ' ✓' : ''}</button>
           <button className="btn ghost sm" title={`Webcam : ${camStatus(camSource)}`} onClick={() => setCamOpen(true)}>
             📷 Webcam{camSource === 'auto_failed' ? ' ⚠' : ''}</button>
           <button className="btn" data-tour="export" onClick={doExport} disabled={!project.clips.length}>Exporter</button>
@@ -776,7 +784,25 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
         </section>
 
         <section className="panel props" data-tour="props">
-          {clip ? (
+          {clip && clip.teaser ? (() => {
+            // Teaser (Sky 27/11 : « ça met que personne n'a écrit pd ») : coupes d'1 s, sans chat ni sous-titres.
+            // Tout se règle sur le clip entier, plus loin dans le montage.
+            const full = project.clips.find((c) => !c.teaser && c.start <= clip.start + 0.01 && c.end >= clip.end - 0.01)
+              || project.clips.find((c) => !c.teaser && c.start < clip.end && clip.start < c.end);
+            return (
+              <>
+                <h3>⚡ Teaser</h3>
+                <div className="note" style={{ marginBottom: 12 }}>
+                  Les meilleurs instants en coupes rapides au début du montage ({M.fmtTime(clip.start)} dans le stream).
+                  Pas de chat, de répliques ni de sous-titres sur ces coupes : ils se règlent sur le clip entier, rejoué plus loin.
+                </div>
+                {full && <button className="btn" onClick={() => { setSelected(full.id); seekStream(full, Math.max(full.start, clip.start - 2)); }}>
+                  Aller au clip entier ({momentLabel(mainMoment(full) || { type: 'clip' })})</button>}
+                <button className="btn ghost danger" style={{ marginTop: 14 }}
+                  onClick={() => { setProject(M.setTeaser(project, false)); setSelected(null); }}>Enlever le teaser</button>
+              </>
+            );
+          })() : clip ? (
             <>
               <h3>Clip sélectionné</h3>
               <div className="note" style={{ marginBottom: 12 }}>
@@ -863,8 +889,13 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
                   now={Math.round((clip.start + player.local) * 100) / 100} />
               </div>
               <div data-tour="chat">
-                <div className="lbl">Messages du chat sur la vidéo</div>
-                <ChatPicker project={project} setProject={setProject} clip={clip} chat={session.chat || []} gameBusy={gameChatBusy}
+                <div className="lbl">Chat du live (Twitch) sur la vidéo</div>
+                <ChatPicker project={project} setProject={setProject} clip={clip} chat={session.chat || []} source="live"
+                  now={Math.round((clip.start + player.local) * 100) / 100} />
+              </div>
+              <div data-tour="gamechat" style={{ marginTop: 12 }}>
+                <div className="lbl">Chat en jeu (Valorant) sur la vidéo</div>
+                <ChatPicker project={project} setProject={setProject} clip={clip} gameBusy={gameChatBusy} source="game"
                   now={Math.round((clip.start + player.local) * 100) / 100} />
               </div>
               <button className="btn ghost danger" style={{ marginTop: 14 }}
@@ -874,8 +905,8 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
 
           <h3 style={{ marginTop: 26 }} data-tour="subs">Sous-titres</h3>
           <label className="check"><input type="checkbox" checked={project.texts.subtitles}
-            onChange={(e) => setProject({ ...project, texts: { ...project.texts, subtitles: e.target.checked } })} /> Sous-titres auto, mot par mot</label>
-          {project.texts.subtitles && clip && (
+            onChange={(e) => setProject({ ...project, texts: { ...project.texts, subtitles: e.target.checked } })} /> Sous-titres sur toute la vidéo (auto, mot par mot)</label>
+          {project.texts.subtitles && clip && !clip.teaser && (
             <div className="subs">
               {subsJob && !subsJob.error && <div className="note">Écoute de ta voix et écriture des sous-titres…</div>}
               {subsJob && subsJob.error && <div className="bad">Sous-titres impossibles : {subsJob.error}</div>}

@@ -329,7 +329,7 @@ test('teaser : les 3 kills du meilleur multi-kill en coupes rapides au début, l
 
 test('fins de partie : fenêtre courte pour les RR, titre avec la victoire', () => {
   assert.deepStrictEqual(m.momentWindow({ type: 'rr', t: 5255, meta: { rr: -25 } }), { start: 5253.5, end: 5258.5 });
-  assert.deepStrictEqual(m.momentWindow({ type: 'victory', t: 7627 }), { start: 7626, end: 7632 });     // « win » ~6 s
+  assert.deepStrictEqual(m.momentWindow({ type: 'victory', t: 7627 }), { start: 7626.8, end: 7628.8 });     // « win » : 2 s
   const p = m.createProject({ clips: [{ start: 7597, end: 7652, moments: [
     { type: 'victory', t: 7627, meta: { score: '13-11' } }, { type: 'rr', t: 7646, meta: { rr: 16 } }] }] });
   const post = m.suggestPost(p, { theme: 'kills' });
@@ -342,4 +342,22 @@ test('chat du jeu lu pendant l\'analyse : repris pour les clips couverts, relu p
   assert.deepStrictEqual(m.gameChatFromSession(gc, { start: 100, end: 140 }).map((x) => x.text), ['pd']);
   assert.strictEqual(m.gameChatFromSession(gc, { start: 100, end: 160 }), null);    // rallongé : pas tout lu
   assert.strictEqual(m.gameChatFromSession(null, { start: 100, end: 140 }), null);
+});
+
+test('montage refait (durée, réanalyse) : les bulles cochées et les réglages de l\'ancien montage sont repris', () => {
+  const old = m.createProject({ clips: [{ start: 1179, end: 1216, moments: [{ type: 'multikill', t: 1200, score: 80 }] }] });
+  let o = m.toggleChat(old, old.clips[0].id, { t: 1188.84, user: 'tuffboy', text: 'pd', game: true, team: 'enemy' });
+  o = { ...o, texts: { ...o.texts, subtitles: false }, volumes: { ...o.volumes, discord: 0.4 }, fmt: '16x9', teaserOff: true };
+  const fresh = m.setTeaser(m.createProject({ clips: [
+    { start: 1176.8, end: 1216.6, moments: [{ type: 'multikill', t: 1200, score: 80, meta: { count: 3, kills: [1183.7, 1202.7, 1208.7] } }] },
+    { start: 5253.5, end: 5258.5, moments: [{ type: 'rr', t: 5255, score: 50 }] },
+  ] }));
+  const q = m.carryChoices(fresh, o);
+  const c = q.clips.find((x) => x.start === 1176.8);
+  assert.deepStrictEqual(c.chat.map((b) => b.text), ['pd']);
+  assert.strictEqual(q.texts.subtitles, false);
+  assert.strictEqual(q.volumes.discord, 0.4);
+  assert.strictEqual(q.fmt, '16x9');
+  assert.ok(!m.hasTeaser(q));                                   // teaser enlevé dans l'ancien : reste enlevé
+  assert.strictEqual(m.carryChoices(fresh, null), fresh);
 });

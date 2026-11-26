@@ -128,6 +128,12 @@ def find_banners(frames, read, around=None) -> list[dict]:
                 if found:
                     at = t2
                     break
+        if found and around is not None:
+            # Début de l'écran : l'image clé tombe souvent au milieu (le clip « win » / « loose » ne dure que 2 s).
+            for t2, img2 in around(at - 4, at + 0.01):
+                if _banner_in(img2, read):
+                    at = min(at, t2)
+                    break
         if found:
             res, score = found
             out.append({"type": res, "t": round(float(at), 2), "meta": {"score": score} if score else {}})

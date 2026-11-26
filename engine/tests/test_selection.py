@@ -28,7 +28,7 @@ def test_retarget_refait_un_theme_a_une_autre_duree(tmp_path):
 
 
 def test_fins_de_partie_classee_ajoutees_dans_l_ordre():
-    """Sky 26/11 : chaque partie classée = « win »/« loose » (~6 s) puis « rr+16 » (~5 s), en plus de la durée
+    """Sky 26/11 : chaque partie classée = « win »/« loose » (2 s) puis « rr+16 » (~5 s), en plus de la durée
     visée, à leur place dans l'ordre du live. Pas dans les thèmes Drôle / Discussion."""
     from sklip_engine.moments import Moment
     from sklip_engine.selection import select_clips
@@ -39,6 +39,6 @@ def test_fins_de_partie_classee_ajoutees_dans_l_ordre():
     clips = select_clips(ms, "kills", 60, stream_duration=12000)
     seq = [(c.moments[0].type, round(c.start, 1), round(c.end, 1)) for c in clips]
     assert [s[0] for s in seq] == ["multikill", "defeat", "rr", "victory", "rr", "multikill"]
-    assert seq[1][1:] == (5225.0, 5231.0) and seq[2][1:] == (5253.5, 5258.5)
+    assert seq[1][1:] == (5225.8, 5227.8) and seq[2][1:] == (5253.5, 5258.5)
     assert [c.start for c in clips] == sorted(c.start for c in clips)
     assert not any(m.type in ("rr", "victory") for c in select_clips(ms, "drole", 60) for m in c.moments)
