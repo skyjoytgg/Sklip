@@ -249,3 +249,34 @@ test('contexte autour des moments : 30 s avant, multi-kill depuis le 1er kill, c
   assert.deepStrictEqual(w({ type: 'multikill', t: 1208.75, meta: { t_start: 1183.75 } }), [1173.75, 1216.75]);
   assert.deepStrictEqual(w({ type: 'viewer_clip', t: 1318 }), [1293, 1326]);
 });
+
+test('couper un clip en deux à la tête de lecture', () => {
+  let p = m.createProject({ clips: [{ start: 100, end: 130, layout: 'cam_full', moments: [{ type: 'kill', t: 105 }, { type: 'laugh', t: 125 }],
+    voices: [{ start: 110, end: 112, text: 'go' }], chat: [{ t: 120, user: 'a', text: 'lol' }] }] });
+  const id = p.clips[0].id;
+  assert.strictEqual(m.splitClip(p, id, 100.5), p);              // morceau trop court : rien
+  p = m.splitClip(p, id, 115);
+  assert.strictEqual(p.clips.length, 2);
+  const [a, b] = p.clips;
+  assert.deepStrictEqual([a.start, a.end, b.start, b.end], [100, 115, 115, 130]);
+  assert.notStrictEqual(a.id, b.id);
+  assert.strictEqual(b.layout, 'cam_full');
+  assert.deepStrictEqual([a.moments.map((x) => x.type), b.moments.map((x) => x.type)], [['kill'], ['laugh']]);
+  assert.deepStrictEqual([a.voices.length, b.voices.length, a.chat.length, b.chat.length], [1, 0, 0, 1]);
+  assert.strictEqual(m.totalDuration(p), 30);
+});
+
+test('sous-titres : décocher une ligne la cache (aperçu et export), le texte est gardé', () => {
+  const w = (s, e, text) => ({ start: s, end: e, text });
+  let p = m.createProject({ clips: [{ start: 100, end: 110,
+    subs: [{ start: 101, end: 102, words: [w(101, 102, 'salut')] }, { start: 105, end: 106, words: [w(105, 106, 'oups')] }] }] });
+  const id = p.clips[0].id;
+  p = m.setLineOn(p, id, 1, false);
+  assert.deepStrictEqual(m.clipWordsForRender(p.clips[0]).map((x) => x.text), ['salut']);
+  assert.strictEqual(m.subtitleAt(p.clips[0], 105.5), null);
+  assert.strictEqual(p.clips[0].subs[1].words[0].text, 'oups');
+  p = m.setLineOn(p, id, null, false);
+  assert.deepStrictEqual(m.clipWordsForRender(p.clips[0]), []);      // [] et pas undefined : le moteur ne les refait pas
+  p = m.setLineOn(p, id, null, true);
+  assert.strictEqual(m.clipWordsForRender(p.clips[0]).length, 2);
+});

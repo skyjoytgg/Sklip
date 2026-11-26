@@ -233,11 +233,23 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   const total = M.totalDuration(project);
   const ref = useRef(null);
 
+  const timeAt = (e) => {
+    const rect = ref.current.getBoundingClientRect();
+    return Math.max(0, Math.min(total, (e.clientX - rect.left + ref.current.scrollLeft - 12) / pps));
+  };
   const onClipDown = (e, clip) => {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setSelected(clip.id);
-    setDrag({ id: clip.id, x0: e.clientX, dx: 0, insert: null });
+    setDrag({ id: clip.id, x0: e.clientX, dx: 0, insert: null, t: timeAt(e) });
+  };
+  // Tête de lecture (barre rouge) : on l'attrape (ou on clique la règle / un vide) et on la glisse.
+  const onScrubDown = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    ref.current.setPointerCapture(e.pointerId);
+    player.setT(timeAt(e));
+    setDrag({ scrub: true });
   };
   const onTrimDown = (e, clip, edge) => {
     e.stopPropagation();
@@ -247,6 +259,7 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   };
   const onMove = (e) => {
     if (!drag) return;
+    if (drag.scrub) { player.setT(timeAt(e)); return; }
     const dx = e.clientX - drag.x0;
     if (drag.trim) {
       setProject(M.trimClip(drag.snap, drag.id, drag.edge, dx / pps, speech));
@@ -262,16 +275,29 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
     setDrag({ ...drag, dx, insert });
   };
   const onUp = () => {
-    if (drag && !drag.trim && Math.abs(drag.dx) > 4 && drag.insert != null) {
-      setProject(M.moveClip(project, drag.id, drag.insert));
+    if (drag && !drag.trim && !drag.scrub) {
+      if (Math.abs(drag.dx) > 4 && drag.insert != null) setProject(M.moveClip(project, drag.id, drag.insert));
+      else if (Math.abs(drag.dx) <= 4 && drag.t != null) player.setT(drag.t);     // simple clic sur un clip : on y va
     }
     setDrag(null);
   };
   const seek = (e) => {
-    if (e.target !== e.currentTarget && !e.target.classList.contains('ruler')) return;
-    const rect = ref.current.getBoundingClientRect();
-    player.setT(Math.max(0, Math.min(total, (e.clientX - rect.left + ref.current.scrollLeft - 12) / pps)));
+    const t = e.target;
+    if (t === e.currentTarget || t.classList.contains('ruler') || t.classList.contains('tl-inner') || t.classList.contains('tl-track')) onScrubDown(e);
   };
+  // Couper le clip sous la tête de lecture.
+  const under = player.idx >= 0 ? project.clips[player.idx] : null;
+  const cutAt = under ? under.start + player.local : null;
+  const canCut = under && cutAt - under.start >= 1 && under.end - cutAt >= 1;
+  const cut = () => { if (canCut) { setProject(M.splitClip(project, under.id, cutAt)); setSelected(null); } };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'c' || e.key === 'C') cut();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const ticks = [];
   const tickStep = pps > 40 ? 1 : pps > 15 ? 5 : 10;
@@ -283,8 +309,10 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   return (
     <div className="timeline-wrap" data-tour="timeline">
       <div className="tl-tools">
-        <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner</span>
+        <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner · glisse la barre rouge pour revoir</span>
         <div className="row">
+          <button className="btn ghost sm" disabled={!canCut} onClick={cut}
+            title={canCut ? 'Coupe le clip en deux à la barre rouge (touche C)' : "Place la barre rouge dans un clip (à plus d'1 s des bords)"}>✂ Couper ici</button>
           <span className="note">Zoom</span>
           <input type="range" min="8" max="80" value={pps} onChange={(e) => setPps(Number(e.target.value))} />
         </div>
@@ -319,7 +347,9 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
             })}
             {insertX != null && <div className="insert" style={{ left: insertX }} />}
           </div>
-          <div className="playhead" style={{ left: player.t * pps }} />
+          <div className="playhead" style={{ left: player.t * pps }}>
+            <div className="ph-knob" title="Glisse pour revoir un passage" onPointerDown={onScrubDown} />
+          </div>
         </div>
       </div>
     </div>
@@ -440,6 +470,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;   // on écrit : pas de raccourci
       if (e.code === 'Space') { e.preventDefault(); view.player.setPlaying(!view.player.playing); }
       if (e.key === 'Escape' && peek) setPeek(null);
+      if (e.key === 'Home') view.player.setT(0);
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         setProject((p) => M.removeClip(p, selected)); setSelected(null);
       }
@@ -450,6 +481,24 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
 
   const moments = useMemo(() => [...session.moments].sort((a, b) => a.t - b.t), [session]);
   const [showHidden, setShowHidden] = useState(false);
+  // Largeur des panneaux de gauche (moments) et de droite (clip sélectionné) : réglable, gardée pour la prochaine fois.
+  const [cols, setCols] = useState(() => {
+    try { return { left: 250, right: 280, ...JSON.parse(localStorage.getItem('sklip.editorCols') || '{}') }; } catch { return { left: 250, right: 280 }; }
+  });
+  useEffect(() => { try { localStorage.setItem('sklip.editorCols', JSON.stringify(cols)); } catch { /* pas grave */ } }, [cols]);
+  const startResize = (e, side) => {
+    e.preventDefault();
+    const x0 = e.clientX; const w0 = cols[side];
+    const other = side === 'left' ? cols.right : cols.left;
+    const max = Math.max(side === 'left' ? 200 : 240, Math.min(window.innerWidth * 0.45, window.innerWidth - 220 - other - 320));   // l'aperçu garde 320 px
+    const move = (ev) => {
+      const d = side === 'left' ? ev.clientX - x0 : x0 - ev.clientX;
+      setCols((c) => ({ ...c, [side]: Math.round(Math.max(side === 'left' ? 200 : 240, Math.min(max, w0 + d))) }));
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.classList.remove('resizing'); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    document.body.classList.add('resizing');
+  };
   const nHidden = moments.filter((m) => M.isMomentHidden(project, m)).length;
 
   // Webcam : réglage de ce stream (project.cam) s'il existe, sinon celle trouvée toute seule / le réglage de base.
@@ -549,7 +598,9 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
         </div>
       </header>
 
-      <div className="ed-body">
+      <div className="ed-body" style={{ gridTemplateColumns: `${cols.left}px minmax(0, 1fr) ${cols.right}px` }}>
+        <div className="col-split" style={{ left: cols.left - 3 }} title="Glisse pour élargir" onPointerDown={(e) => startResize(e, 'left')} />
+        <div className="col-split" style={{ right: cols.right - 3 }} title="Glisse pour élargir" onPointerDown={(e) => startResize(e, 'right')} />
         <section className="panel moments" data-tour="moments">
           <h3>Moments détectés</h3>
           <div className="list">
@@ -611,6 +662,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
           <Preview project={view.project} player={view.player} videoSrc={session.stream.video ? `file:///${session.stream.video}` : null} cam={cam}
             camManual={['manual', 'project'].includes(camSource)} portraits={portraits} needPortrait={needPortrait} />
           <div className="transport">
+            <button className="btn ghost sm" title="Revenir au début (touche Début)" onClick={() => view.player.setT(0)}>⏮</button>
             <button className="btn sm" onClick={() => view.player.setPlaying(!view.player.playing)}>{view.player.playing ? '⏸ Pause' : '▶ Lire'}</button>
             <span className="note">{M.fmtTime(view.player.t)} / {M.fmtTime(view.player.total)}</span>
           </div>
@@ -721,8 +773,16 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
               {subsJob && !subsJob.error && <div className="note">Écoute de ta voix et écriture des sous-titres…</div>}
               {subsJob && subsJob.error && <div className="bad">Sous-titres impossibles : {subsJob.error}</div>}
               {clip.subs && clip.subs.length === 0 && <div className="note">Rien n'a été dit dans ce clip.</div>}
+              {clip.subs && clip.subs.length > 1 && (
+                <div className="row" style={{ gap: 10, marginBottom: 4 }}>
+                  <span className="note">{clip.subs.filter((l) => !l.off).length}/{clip.subs.length} affichées</span>
+                  <button className="link" onClick={() => setProject(M.setLineOn(project, clip.id, null, true))}>Tout cocher</button>
+                  <button className="link" onClick={() => setProject(M.setLineOn(project, clip.id, null, false))}>Tout décocher</button>
+                </div>)}
               {clip.subs && clip.subs.map((line, i) => (
-                <div key={`${line.start}-${M.lineText(line)}`} className="subline">
+                <div key={`${line.start}-${M.lineText(line)}`} className={'subline' + (line.off ? ' off' : '')}>
+                  <input type="checkbox" checked={!line.off} title={line.off ? 'Ligne cachée : coche pour l’afficher' : 'Décoche pour cacher cette ligne (le texte est gardé)'}
+                    onChange={(e) => setProject(M.setLineOn(project, clip.id, i, e.target.checked))} />
                   <button className="link" title="Écouter ce passage" onClick={() => seekStream(clip, line.start)}>{M.fmtTime(line.start - clip.start)}</button>
                   <textarea rows={2} defaultValue={M.lineText(line)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
@@ -737,7 +797,7 @@ export function Editor({ session, onBack, onTheme, showTour, tourSeen = 0, onTou
                   }}>+ Ajouter une ligne ici</button>
                   <button className="link" onClick={() => { if (window.confirm('Réécrire les sous-titres de ce clip ? Tes corrections seront perdues.')) setProject(M.updateClip(project, clip.id, { subs: null })); }}>Regénérer</button>
                 </div>)}
-              <div className="note">Clique dans une ligne pour corriger une faute ou écrire une blague. Entrée pour valider.</div>
+              <div className="note">Décoche une ligne pour la cacher. Clique dans une ligne pour corriger une faute ou écrire une blague. Entrée pour valider.</div>
             </div>)}
 
           <h3 style={{ marginTop: 26 }}>Textes à l'écran</h3>

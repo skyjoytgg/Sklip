@@ -177,6 +177,32 @@ function peekProject(p, moment, like = []) {
   return q;
 }
 
+/**
+ * Coupe un clip en deux à l'instant `at` (temps du stream) : deux clips qui se suivent, mêmes réglages.
+ * Moments, répliques, bulles du chat et sous-titres vont dans la moitié où ils tombent ; la réaction d'un pote
+ * reste dans la moitié où elle commence. Rien si la coupe laisse un morceau de moins de MIN_CLIP.
+ */
+function splitClip(p, id, at) {
+  const i = p.clips.findIndex((c) => c.id === id);
+  if (i < 0) return p;
+  const c = p.clips[i];
+  if (!(at - c.start >= MIN_CLIP && c.end - at >= MIN_CLIP)) return p;
+  at = round(at);
+  const side = (t) => (t < at ? 0 : 1);
+  const part = (k) => makeClip({
+    ...c, id: undefined,
+    start: k ? at : c.start, end: k ? c.end : at,
+    moments: c.moments.filter((m) => side(m.t) === k),
+    voices: (c.voices || []).filter((v) => side(v.start) === k),
+    chat: (c.chat || []).filter((m) => side(m.start != null ? m.start : m.t) === k),
+    subs: c.subs ? c.subs.filter((l) => side(l.start) === k) : null,
+    friend: c.friend && side(c.friend.offset) === k ? c.friend : null,
+  });
+  const clips = p.clips.slice();
+  clips.splice(i, 1, part(0), part(1));
+  return { ...p, clips };
+}
+
 function removeClip(p, id) {
   return { ...p, clips: p.clips.filter((c) => c.id !== id) };
 }
@@ -311,6 +337,14 @@ function setLineText(p, id, index, text) {
   return updateClip(p, id, { subs });
 }
 
+/** Affiche ou cache une ligne de sous-titre (`index`), ou toutes les lignes du clip (`index` = null). Le texte est gardé. */
+function setLineOn(p, id, index, on) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c || !c.subs) return p;
+  const subs = c.subs.map((l, i) => (index == null || i === index ? { ...l, off: !on } : l));
+  return updateClip(p, id, { subs });
+}
+
 /** Ajoute une ligne à l'instant `t` (temps du stream), par ex. pour une blague. */
 function addLine(p, id, t, text = 'Texte', duration = 1.5) {
   const c = p.clips.find((x) => x.id === id);
@@ -324,7 +358,7 @@ function addLine(p, id, t, text = 'Texte', duration = 1.5) {
 /** Mots du clip pour le rendu (temps relatifs au clip), ou undefined si jamais générés (le moteur s'en charge). */
 function clipWordsForRender(c) {
   if (!c.subs) return undefined;
-  return c.subs.flatMap((l) => l.words)
+  return c.subs.filter((l) => !l.off).flatMap((l) => l.words)
     .filter((w) => w.end > c.start && w.start < c.end)
     .map((w) => ({ start: round(Math.max(0, w.start - c.start)), end: round(Math.min(c.end, w.end) - c.start), text: w.text }));
 }
@@ -332,7 +366,7 @@ function clipWordsForRender(c) {
 /** Ligne affichée dans l'aperçu à l'instant `t` (temps du stream), avec l'index du mot prononcé. */
 function subtitleAt(c, t) {
   if (!c || !c.subs) return null;
-  const line = c.subs.find((l) => t >= l.start && t <= l.end + 0.15);
+  const line = c.subs.find((l) => !l.off && t >= l.start && t <= l.end + 0.15);
   if (!line) return null;
   let k = line.words.findIndex((w) => t >= w.start && t < w.end);
   if (k < 0) k = line.words.filter((w) => w.start <= t).length - 1;
@@ -554,9 +588,9 @@ module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, peekProject, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
-  momentWindow, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
+  momentWindow, splitClip, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   chatNear, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
-  linesFromWords, lineText, setClipWords, setLineText, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
+  linesFromWords, lineText, setClipWords, setLineText, setLineOn, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

@@ -646,3 +646,9 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
 - **Réanalyser** (page du live) : même dossier, image en cache (~2 min), reprend Twitch / marqueurs / pistes / passages ;
   les montages retouchés vont dans `.sklip/avant-reanalyse`.
 - **Mises à jour** : electron-updater télécharge la nouvelle version au lancement, installée à la fermeture de Sklip.
+- **Éditeur (v0.1.3)** : barre rouge qu'on attrape et glisse (règle, clic sur un clip, ⏮ / touche Début) ;
+  « ✂ Couper ici » (touche C) coupe un clip en deux ; panneaux de gauche et de droite élargissables (bord à tirer,
+  largeur gardée) ; l'éditeur ne déborde plus quand la fenêtre est petite ; sous-titres : case à cocher par ligne
+  (cachée à l'aperçu et à l'export, texte gardé), « Tout cocher / Tout décocher ».
+- **Releases** : la construction crée une seule release brouillon avant electron-builder et la publie à la fin
+  (v0.1.0 et v0.1.1 étaient en double ; la v0.1.1 n'était pas trouvée par la mise à jour auto).
