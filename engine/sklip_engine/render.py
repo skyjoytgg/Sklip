@@ -41,14 +41,20 @@ def detect_encoder(force: str | None = None) -> str:
     return _encoder_cache
 
 
+# Débit vidéo : ce que TikTok / YouTube Shorts gardent de toute façon (ils réencodent). Sans plafond, la carte AMD
+# en « qualité fixe » sortait ~15 Mbit/s (112 Mo pour 58 s) sans différence visible une fois en ligne.
+VIDEO_RATE, VIDEO_MAX, VIDEO_BUF = "8M", "12M", "16M"
+
+
 def encoder_args(enc: str) -> list[str]:
+    cap = ["-maxrate", VIDEO_MAX, "-bufsize", VIDEO_BUF]
     if enc == "h264_nvenc":
-        return ["-c:v", enc, "-preset", "p5", "-cq", "20", "-pix_fmt", "yuv420p"]
+        return ["-c:v", enc, "-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", VIDEO_RATE, *cap, "-pix_fmt", "yuv420p"]
     if enc == "h264_amf":
-        return ["-c:v", enc, "-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22", "-pix_fmt", "yuv420p"]
+        return ["-c:v", enc, "-quality", "quality", "-rc", "vbr_peak", "-b:v", VIDEO_RATE, *cap, "-pix_fmt", "yuv420p"]
     if enc == "h264_qsv":
-        return ["-c:v", enc, "-global_quality", "21", "-pix_fmt", "nv12"]
-    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+        return ["-c:v", enc, "-b:v", VIDEO_RATE, *cap, "-pix_fmt", "nv12"]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", *cap, "-pix_fmt", "yuv420p"]
 
 
 @dataclass

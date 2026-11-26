@@ -104,6 +104,10 @@ test('texte proposé pour poster la vidéo', () => {
   assert.equal(post.title, 'Clutch 1v3 🧠');
   assert.ok(!post.hashtags.includes('#shorts'));
   assert.equal(m.toRenderSpec(p, { video: 'v', output: 'o', post }).post.title, 'Clutch 1v3 🧠');
+  p = m.createProject({ clips: [{ start: 10, end: 20, moments: [{ type: 'multikill', t: 15, meta: { count: 3, knives: [15] } }] }], streamDuration: 100 });
+  post = m.suggestPost(p);
+  assert.equal(post.title, 'Kill au couteau 🔪');
+  assert.ok(post.hashtags.includes('#knife'));
 });
 
 test('sous-titres : lignes, correction, blague, rendu', () => {

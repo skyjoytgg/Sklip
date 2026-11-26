@@ -238,12 +238,19 @@ def round_at(rounds: list[Round], time: float) -> Round | None:
     return None
 
 
-def group_kills(kill_times: list[float], rounds: list[Round]) -> list[Moment]:
+def group_kills(kill_times: list[float], rounds: list[Round], knives: list[float] | None = None) -> list[Moment]:
     """Transforme les kills en moments : kill seul, multi-kill (2-4 dans le round) ou ace (5).
 
     Un multi-kill / ace donne un seul moment, placé au dernier kill, dont le clip commence avant le premier
     (meta.t_start). Un kill hors de tout round reconnu reste un kill simple.
+    `knives` : kills faits au couteau (meta.knives, bonus de score).
     """
+    knives = knives or []
+
+    def kn(ts):
+        k = [t for t in ts if any(abs(t - x) < 0.05 for x in knives)]
+        return {"knives": k} if k else {}
+
     by_round: dict[tuple[int, int], list[float]] = {}
     loose: list[float] = []
     for kt in sorted(kill_times):
@@ -252,12 +259,12 @@ def group_kills(kill_times: list[float], rounds: list[Round]) -> list[Moment]:
             loose.append(kt)
         else:
             by_round.setdefault((r.game, r.number), []).append(kt)
-    out = [Moment("kill", kt) for kt in loose]
+    out = [Moment("kill", kt, meta=kn([kt])) for kt in loose]
     for (game, number), ts in by_round.items():
         meta = {"game": game, "round": number}
         if len(ts) == 1:
-            out.append(Moment("kill", ts[0], meta=meta))
+            out.append(Moment("kill", ts[0], meta={**meta, **kn(ts)}))
         else:
             mtype = "ace" if len(ts) >= 5 else "multikill"
-            out.append(Moment(mtype, ts[-1], meta={**meta, "count": len(ts), "kills": ts, "t_start": ts[0]}))
+            out.append(Moment(mtype, ts[-1], meta={**meta, "count": len(ts), "kills": ts, "t_start": ts[0], **kn(ts)}))
     return sorted(out, key=lambda m: m.t)

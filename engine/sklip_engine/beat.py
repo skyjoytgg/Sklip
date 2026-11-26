@@ -7,16 +7,27 @@ Deux usages (cahier des charges) :
 from __future__ import annotations
 
 import numpy as np
-from scipy.signal import stft
 
 from .audio_sync import load_audio
 
 BEAT_RATE = 11025
 
 
+def stft(x: np.ndarray, nperseg: int = 1024, hop: int = 256) -> np.ndarray:
+    """Spectrogramme (fréquences × instants), comme scipy.signal.stft(boundary=None, padded=True) : fenêtre de Hann,
+    divisé par la somme de la fenêtre. Écrit avec numpy pour ne pas embarquer scipy dans l'installeur."""
+    x = np.asarray(x, dtype=np.float64)
+    if len(x) < nperseg:
+        x = np.pad(x, (0, nperseg - len(x)))
+    x = np.pad(x, (0, (-(len(x) - nperseg) % hop) % nperseg))
+    win = 0.5 - 0.5 * np.cos(2 * np.pi * np.arange(nperseg) / nperseg)
+    idx = np.arange(nperseg)[None, :] + hop * np.arange((len(x) - nperseg) // hop + 1)[:, None]
+    return (np.fft.rfft(x[idx] * win, axis=1) / win.sum()).T
+
+
 def onset_envelope(audio: np.ndarray, rate: int = BEAT_RATE, hop: int = 256) -> tuple[np.ndarray, float]:
     """Flux spectral (montées d'énergie) : pics aux attaques des notes / percussions."""
-    _, _, z = stft(audio, fs=rate, nperseg=1024, noverlap=1024 - hop, boundary=None)
+    z = stft(audio, nperseg=1024, hop=hop)
     mag = np.log1p(np.abs(z) * 100)
     flux = np.maximum(0.0, np.diff(mag, axis=1)).sum(axis=0)
     flux = flux - np.convolve(flux, np.ones(16) / 16, mode="same")  # retire la tendance

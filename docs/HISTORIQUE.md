@@ -534,3 +534,36 @@ Sky : « Fait tout ça y compris le commite » (commit 25f4aa1 poussé avant de 
 - **Proposition « ce sera flou »** (éditeur) : un clip mis à la main en « Cam en grand » avec une petite webcam
   (moins de la moitié de la hauteur, même seuil que le moteur) affiche un conseil en jaune et un bouton
   « Mettre « Cam en haut » ». Rien n'est imposé.
+
+### 14 quater. Optimisations (Sky : « Oui » aux points 1, 2, 3)
+- **Exports plus légers** (`render.encoder_args`) : débit cible 8 Mbit/s, plafond 12 Mbit/s, pour tous les encodeurs
+  (AMD, NVIDIA, Intel, CPU). La carte AMD de Sky en « qualité fixe » sortait ~15 Mbit/s : 58 s = 112 Mo → 61 Mo,
+  aucune différence visible (comparaison image par image), et TikTok / YouTube réencodent de toute façon.
+- **Installeur plus petit** : scipy retiré (seuls `fftconvolve` et `stft` servaient, réécrits avec numpy, résultats
+  identiques à 1e-17), `hf_xet` et `onnxruntime.transformers` exclus, DLL vidéo d'OpenCV supprimée après
+  construction (les vidéos sont lues par FFmpeg). Moteur 455 → 335 Mo.
+  **Bug trouvé** : `"files": ["dist/**"]` embarquait dans l'appli… les installeurs précédents rangés dans app/dist
+  (sur le PC : 242 → 619 → 995 Mo à chaque construction ; pas sur GitHub où le dossier part vide). Maintenant
+  `dist/renderer.js` seulement. Installeur : 619 → 217 Mo. Moteur empaqueté vérifié : analyse complète, BPM
+  (119,8 pour 120), calage audio (7,3 s retrouvé), cadrage visage.
+- **Best-of du live** (thème `bestof`, 60 s) : tous les types de moments, répartis entre les parties (chaque clip
+  déjà pris dans une partie rend les suivants de cette partie moins prioritaires). Ajouté tout seul aux lives
+  d'au moins 45 min avec au moins 10 moments. 2e VOD : 4 clips sur 4 parties différentes (60 s).
+- Attention en local : un fichier .bat réécrit avec des fins de ligne Linux casse `build.bat` (Windows lit mal) ;
+  .gitattributes force déjà CRLF dans le dépôt.
+
+### 14 quinquies. Retours de Sky sur le best-of de la 2e VOD
+- **Kills très rapprochés** (« sur l'avant-dernier clip j'ai fait 3 kills ») : à 82:44 les deux premiers kills
+  sont à ~0,3 s ; l'emblème ne « retombe » qu'1/10 s, invisible à 4 images/s. `kill_detect.refine_kills` relit
+  chaque apparition de l'emblème à 10 images/s (2-3 s de vidéo à chaque fois, ~1 min 30 pour un live de 3 h 20)
+  et sépare les kills ; il n'en retire jamais. 2e VOD : 62 → 66 kills de Sky, le clip devient un 3K.
+- **Ordre du best-of** (« échanger les deux derniers clips ») : règle retenue, ordre du live mais le meilleur
+  clip à la fin (`selection.finale_last`, à égalité le plus tardif).
+- **Kills au couteau (« au cut »)** : Sky a confirmé que le 3e kill du 3K de 82:44 est au couteau (« 2 coups de
+  shorty puis je le termine au couteau »). `killfeed.py` lit le fil des kills en haut à droite : sur les lignes
+  « vert tue rouge », l'icône de l'arme est blanche et toujours dessinée pareil ; le couteau est la seule icône fine et
+  pleine (63×12 px en 1080p, les armes ≥ 17 px de haut). Un kill du streamer est au couteau si une icône de couteau
+  de plus apparaît dans le fil juste après lui. Sur les 2 VOD (137 kills) : exactement 1 trouvé, le bon.
+  ~50 s de plus par live de 3 h. Bonus de score +55 (`KNIFE_BONUS`) : un kill au couteau seul passe devant un 3K.
+  À l'écran : « 3 KILLS / AU COUTEAU » ; titre proposé « Kill au couteau 🔪 », hashtag #knife.
+  Limite : un skin de couteau avec une icône très différente (large, ajourée) pourrait ne pas être reconnu.

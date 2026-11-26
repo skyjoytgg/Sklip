@@ -30,7 +30,7 @@
       "src/preload.js",
       "src/renderer/index.html",
       "src/renderer/styles.css",
-      "dist/**",
+      "dist/renderer.js",
       "config.json"
     ],
     "extraResources": [

@@ -4,6 +4,7 @@ export const THEMES = [
   { id: 'drole', label: 'Moments drôles' },
   { id: 'communaute', label: 'Moments communauté' },
   { id: 'discussion', label: 'Discussion (Just Chatting)' },
+  { id: 'bestof', label: 'Best-of du live (60 s)' },
 ];
 
 export const MODES = {

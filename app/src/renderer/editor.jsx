@@ -116,7 +116,7 @@ function Preview({ project, player, videoSrc, cam, camManual = false }) {
         {!vertical && !videoSrc && <div className="pv-cam pv-cam-corner">CAM</div>}
         {showText && mm.type === 'ace' && project.texts.ace && <div className="pv-text big">ACE</div>}
         {showText && ['multikill', 'kill'].includes(mm.type) && project.texts.killCounter && (
-          <div className="pv-text">{mm.meta?.count ? `${mm.meta.count} KILLS` : 'KILL'}</div>)}
+          <div className="pv-text">{mm.meta?.count ? `${mm.meta.count} KILLS` : 'KILL'}{mm.meta?.knives?.length ? <><br />AU COUTEAU</> : null}</div>)}
         {clip && clip.friend && <FriendPreview clip={clip} t={clip.start + player.local} playing={player.playing} vertical={vertical} />}
         {project.texts.enabled && project.texts.pseudo && <div className="pv-pseudo">{project.texts.pseudo}</div>}
         {project.texts.subtitles && clip && (() => {

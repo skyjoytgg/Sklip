@@ -157,8 +157,8 @@ def _filter(w: int, h: int, fps: float) -> str:
 FAST_DECODE = ["-skip_frame", "noref"]
 
 
-def _scan_segment(video: str, w: int, h: int, start: float, dur: float, fps: float):
-    cmd = ["ffmpeg", "-v", "error", *FAST_DECODE, "-ss", f"{start:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an",
+def _scan_segment(video: str, w: int, h: int, start: float, dur: float, fps: float, fast: bool = True):
+    cmd = ["ffmpeg", "-v", "error", *(FAST_DECODE if fast else []), "-ss", f"{start:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an",
            "-filter_complex", _filter(w, h, fps), "-f", "rawvideo", "-"]
     fh = BANNER_PX + SPEC_H
     frame_bytes = BANNER_PX * fh
@@ -267,6 +267,59 @@ def _retriggers(b: np.ndarray) -> list[int]:
 DEATH_LEAD = 2.5      # la carte du coéquipier regardé apparaît ~2,5 s après la mort (VOD du 01/11)
 SPECTATE_MIN = 2.0    # durée minimale en spectateur pour compter une mort (s)
 SPECTATE_GAP = 5.0    # trous plus courts ignorés (changement de joueur regardé, flash…) (s)
+
+
+REFINE_FPS = 10.0     # relecture fine de chaque emblème : deux kills à 0,3 s d'écart ne laissent qu'un « trou »
+REFINE_PAD = 0.3      # d'un dixième de seconde dans l'emblème, invisible à 4 images/s (VOD du 25/11, 82:44)
+
+
+def _groups(events: list[KillEvent], fps: float) -> list[list[KillEvent]]:
+    """Kills d'une même apparition de l'emblème (ils se suivent sans trou)."""
+    out: list[list[KillEvent]] = []
+    for e in sorted(events, key=lambda e: e.t):
+        if out and abs(out[-1][-1].t + out[-1][-1].duration - e.t) <= 1.5 / fps:
+            out[-1].append(e)
+        else:
+            out.append([e])
+    return out
+
+
+def fine_kill_spans(arr: np.ndarray, fine_fps: float, banner_on: float = BANNER_ON) -> list[tuple[int, int]]:
+    """Kills lus dans le score d'emblème relu finement : (début, fin) en indices d'images."""
+    if not len(arr):
+        return []
+    runs = [(i, j) for i, j in _segments(arr >= banner_on) if (j - i) / fine_fps >= 0.5]
+    if not runs:
+        return []
+    starts = [i + k for i, j in runs for k in [0] + _retriggers(arr[i:j])]
+    ends = starts[1:] + [runs[-1][1]]
+    return list(zip(starts, ends))
+
+
+def refine_kills(video: str, events: list[KillEvent], fps: float = 4.0, fine_fps: float = REFINE_FPS,
+                 banner_on: float = BANNER_ON) -> list[KillEvent]:
+    """Relit chaque emblème à 10 images/s (seulement ces 2-3 secondes) pour séparer les kills très rapprochés.
+    Ne retire jamais un kill : si la relecture en trouve moins, on garde la première lecture."""
+    if not events:
+        return events
+    w, h, _ = _probe(video)
+    out: list[KillEvent] = []
+    for g in _groups(events, fps):
+        a = max(0.0, g[0].t - REFINE_PAD)
+        b = g[-1].t + g[-1].duration + REFINE_PAD
+        try:
+            banner, _ = _scan_segment(video, w, h, a, b - a, fine_fps, fast=False)
+        except Exception:
+            banner = []
+        arr = np.array(banner, np.float32)
+        spans = fine_kill_spans(arr, fine_fps, banner_on)
+        if len(spans) <= len(g):
+            out.extend(g)
+            continue
+        for s0, s1 in spans:
+            out.append(KillEvent(t=round(a + s0 / fine_fps, 3), duration=(s1 - s0) / fine_fps,
+                                 peak=float(arr[s0:s1].max()) if s1 > s0 else 0.0, spectating=g[0].spectating))
+    return out
 
 
 def find_deaths(scan: Scan, spectate_on: float = SPECTATE_ON) -> list[float]:

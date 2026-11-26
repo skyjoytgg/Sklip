@@ -12,7 +12,7 @@ import json
 import os
 from datetime import date
 
-from .kill_detect import Scan, _probe, alive_checker, find_deaths, find_kills, scan_video
+from .kill_detect import Scan, _probe, alive_checker, find_deaths, find_kills, refine_kills, scan_video
 from .moments import BASE_SCORES, THEMES, Moment
 from .ranking import funny_deaths, rank_moments
 from .rounds import Hud, find_clutches, group_kills, read_hud, rounds_from_scores
@@ -121,11 +121,14 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
             vocal, speech = [], []             # piste illisible : on continue sans
 
     report(0.96, "Choix des meilleurs moments")
-    events = find_kills(scan)
+    events = refine_kills(video, find_kills(scan))     # kills très rapprochés : relecture fine de l'emblème
     kill_times = [round(e.t, 2) for e in events if not e.spectating]
     deaths = [round(d, 2) for d in find_deaths(scan)]
     rounds = rounds_from_scores(hud.t, hud.scores)
-    moments = group_kills(kill_times, rounds) + find_clutches(hud, rounds, kill_times, alive_checker(scan))
+    report(0.965, "Recherche des kills au couteau")
+    from .killfeed import knife_kills
+    knives = knife_kills(video, events)
+    moments = group_kills(kill_times, rounds, knives) + find_clutches(hud, rounds, kill_times, alive_checker(scan))
     for m in extra_moments or []:     # Twitch (raids, chat, clips, peak) et marqueurs, déjà en temps de la vidéo
         if m.get("type") in BASE_SCORES and 0 <= float(m["t"]) <= duration:
             moments.append(Moment(m["type"], float(m["t"]), m.get("score"), m.get("meta", {})))
@@ -140,6 +143,11 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
 
     from .segments import assign_layouts, hud_segments, in_scene, segment_at
     hud_segs = hud_segments(hud.t, hud.score_left, duration)
+
+    # Long live avec beaucoup de moments : un « Best-of du live » de 60 s en plus des thèmes choisis.
+    from .moments import BESTOF_MIN_DURATION, BESTOF_MIN_MOMENTS
+    if "bestof" not in themes and duration >= BESTOF_MIN_DURATION and len(moments) >= BESTOF_MIN_MOMENTS:
+        themes = themes + ["bestof"]
 
     def theme_moments(th):
         # Thème lié à un type de scène (« Discussion ») : seulement les moments de ces passages.

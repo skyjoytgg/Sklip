@@ -204,7 +204,9 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   const has = (t) => all.find((m) => m.type === t);
   const best = all.reduce((a, m) => (!a || (m.meta?.count || 1) > (a.meta?.count || 1) ? m : a), null);
   let title;
-  if (has('ace')) title = 'ACE 🔥';
+  if (theme === 'bestof') title = has('ace') ? 'Le best-of du live (avec un ACE) 🔥' : 'Le best-of du live 🔥';
+  else if (all.some((m) => m.meta?.knives?.length)) title = 'Kill au couteau 🔪';
+  else if (has('ace')) title = 'ACE 🔥';
   else if (has('clutch')) title = `Clutch ${has('clutch').meta?.vs ? `1v${has('clutch').meta.vs}` : ''} 🧠`.replace('  ', ' ');
   else if (best && best.type === 'multikill') title = `${best.meta.count}K 😤`;
   else if (theme === 'drole') title = 'Le moment où tout part en vrille 😂';
@@ -213,6 +215,7 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   else title = 'Les meilleurs kills du stream 🎯';
   const tags = ['#valorant', '#valorantclips', '#twitch', '#gaming'];
   if (p.fmt === '9x16') tags.push('#shorts', '#fyp');
+  if (all.some((m) => m.meta?.knives?.length)) tags.push('#knife');
   if (theme === 'drole') tags.push('#funny');
   if (theme === 'discussion') tags.push('#justchatting');
   const desc = [streamTitle && `Extrait du live « ${streamTitle} »`, channel && `En live sur twitch.tv/${channel}`]

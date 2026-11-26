@@ -108,3 +108,16 @@ def test_scan_sauvegarde_et_relecture(tmp_path):
     sc.save(tmp_path / "s.npz")
     back = Scan.load(tmp_path / "s.npz")
     assert back.fps == 4.0 and np.allclose(back.banner, sc.banner)
+
+
+def test_kills_tres_rapproches_separes_par_la_relecture_fine():
+    # Score d'emblème relu à 10 images/s à 82:44 (VOD du 25/11) : le 2e kill ne laisse qu'un creux d'1/10 s.
+    import numpy as np
+    from sklip_engine.kill_detect import _groups, fine_kill_spans, KillEvent
+    arr = np.array([5, 20, 42, 60, 23, 67, 86, 80, 78, 75, 70, 66, 60, 55, 50, 40, 30, 10, 5], np.float32)
+    spans = fine_kill_spans(arr, 10.0)
+    assert [s for s, _ in spans] == [2, 5]
+    assert fine_kill_spans(np.array([5, 5, 5], np.float32), 10.0) == []
+    # deux kills qui se suivent dans la même apparition de l'emblème = un seul groupe à relire
+    ev = [KillEvent(10.0, 1.0, 50, False), KillEvent(11.0, 2.0, 60, False), KillEvent(30.0, 2.0, 60, False)]
+    assert [len(g) for g in _groups(ev, 4.0)] == [2, 1]

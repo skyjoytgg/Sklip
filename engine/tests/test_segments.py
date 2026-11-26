@@ -77,3 +77,24 @@ def test_theme_discussion_seulement_pendant_les_passages_discussion():
     # VOD sans infos OBS : hors du bandeau de score Valorant = discussion.
     hud = [{"start": 0, "end": 600, "game": None}, {"start": 600, "end": 3600, "game": "VALORANT"}]
     assert [m.t for m in in_scene(ms, "discussion", None, hud)] == [100.0]
+
+
+def test_best_of_60_s_reparti_entre_les_parties():
+    from sklip_engine.selection import select_clips
+    # Partie 0 : plein de gros moments ; partie 1 : un seul multi-kill ; un rire hors partie.
+    ms = [Moment("multikill", 100.0 + 60 * i, 70, {"game": 0, "count": 2}) for i in range(8)]
+    ms += [Moment("multikill", 3000.0, 65, {"game": 1, "count": 2}), Moment("laugh", 5000.0, 60, {})]
+    clips = select_clips(ms, "bestof", 30)            # la cible du best-of (60 s) passe avant celle du réglage
+    games = [m.meta.get("game") for c in clips for m in c.moments]
+    assert 1 in games and None in games                # la partie 1 et le rire ne sont pas écrasés par la partie 0
+    assert 40 <= sum(c.duration for c in clips) <= 60.5
+
+
+def test_best_of_finit_sur_le_meilleur_clip():
+    from sklip_engine.selection import select_clips
+    ms = [Moment("kill", 500.0, 40, {"game": 0}), Moment("ace", 2000.0, 95, {"game": 1, "count": 5}),
+          Moment("multikill", 4000.0, 60, {"game": 2, "count": 2}), Moment("kill", 6000.0, 45, {"game": 3})]
+    clips = select_clips(ms, "bestof", 60)
+    assert clips[-1].moments[0].type == "ace"          # le meilleur à la fin…
+    rest = [c.start for c in clips[:-1]]
+    assert rest == sorted(rest)                         # …les autres dans l'ordre du live

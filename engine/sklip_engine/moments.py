@@ -24,6 +24,8 @@ BASE_SCORES: dict[str, float] = {
     "marker": 65,         # raccourci, !clip, Stream Deck
 }
 
+KNIFE_BONUS = 55         # kill au couteau : rare et classe, prioritaire (un kill au couteau seul passe devant un 3K)
+
 MOMENT_TYPES = tuple(BASE_SCORES)
 
 # Thèmes fournis. Les thèmes perso sont des listes de types cochées par le streamer.
@@ -35,7 +37,14 @@ THEMES: dict[str, dict] = {
     # raids, marqueurs. Rien pendant les parties : la webcam en grand, c'est le streamer qui parle.
     "discussion": {"label": "Discussion (Just Chatting)", "scene": "discussion",
                    "types": ["laugh", "scream", "chat_spike", "raid", "marker", "viewer_clip", "viewer_peak"]},
+    # Long live : 60 s des meilleurs moments de tous les types, répartis entre les parties (ajouté tout seul).
+    "bestof": {"label": "Best-of du live", "target": 60.0, "spread": True,
+               "types": ["ace", "clutch", "multikill", "kill", "funny_death", "laugh", "scream", "chat_spike", "raid",
+                         "marker", "viewer_clip", "viewer_peak"]},
 }
+
+BESTOF_MIN_DURATION = 45 * 60    # le best-of est ajouté aux lives d'au moins 45 min…
+BESTOF_MIN_MOMENTS = 10          # … qui ont au moins 10 moments
 
 # Types qui n'ont de sens qu'en jeu (pas cherchés hors Valorant).
 VALORANT_ONLY = {"ace", "multikill", "clutch", "kill", "funny_death"}
@@ -63,6 +72,7 @@ def moment_score(mtype: str, meta: dict | None = None) -> float:
     s = BASE_SCORES[mtype]
     if mtype == "multikill":
         s += 10 * max(0, int(meta.get("count", 2)) - 2)  # 3K > 2K, 4K > 3K
+    s += KNIFE_BONUS * len(meta.get("knives", []))
     if mtype == "raid":
         s += min(20, int(meta.get("viewers", 0)) / 10)
     if mtype == "chat_spike":

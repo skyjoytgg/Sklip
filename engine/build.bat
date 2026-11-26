@@ -15,5 +15,9 @@ if exist .venv\Scripts\python.exe (
   --add-data "sklip_engine\fonts;sklip_engine\fonts" ^
   --add-data "sklip_engine\assets;sklip_engine\assets" ^
   --collect-all faster_whisper --collect-all ctranslate2 ^
+  --exclude-module scipy --exclude-module hf_xet --exclude-module onnxruntime.transformers ^
   run_engine.py || exit /b 1
+rem OpenCV sert seulement à analyser des images : sa DLL de lecture vidéo (40 Mo) n'est jamais utilisée
+rem (les vidéos sont lues par FFmpeg).
+del /q dist\sklip-engine\_internal\cv2\opencv_videoio_ffmpeg*.dll 2>nul
 echo Moteur construit dans engine\dist\sklip-engine

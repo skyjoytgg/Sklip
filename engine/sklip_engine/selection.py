@@ -71,7 +71,8 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
     - prend les clips par score décroissant tant que la durée cible n'est pas dépassée ;
     - si un BPM est donné, chaque clip dure un nombre entier de temps (coupes sur le beat).
     """
-    target = min(MAX_TARGET, max(MIN_TARGET, float(target)))
+    spec = THEMES.get(theme, {}) if isinstance(theme, str) else {}
+    target = min(MAX_TARGET, max(MIN_TARGET, float(spec.get("target", target))))
     wanted = theme_types(theme)
     clips = moments_to_clips([m for m in moments if m.type in wanted], stream_duration=stream_duration)
     clips = snap_to_speech(clips, speech, stream_duration)   # pas de coupe au milieu d'une phrase
@@ -85,6 +86,8 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
 
     chosen: list[Clip] = []
     total = 0.0
+    if spec.get("spread"):
+        return finale_last(sorted(_spread(clips, target), key=lambda c: c.start))
     for c in sorted(clips, key=lambda c: c.score, reverse=True):
         if total + c.duration <= target + 0.5:
             chosen.append(c)
@@ -92,3 +95,37 @@ def select_clips(moments: list[Moment], theme: str | list[str], target: float = 
         if total >= target - 1.0:
             break
     return sorted(chosen, key=lambda c: c.start)
+
+
+SPREAD_PENALTY = 0.75   # chaque clip déjà pris dans la même partie divise l'intérêt des suivants par 4/3
+
+
+def _game_of(c: Clip):
+    for m in c.moments:
+        if m.meta and m.meta.get("game") is not None:
+            return m.meta["game"]
+    return None
+
+
+def finale_last(clips: list[Clip]) -> list[Clip]:
+    """Best-of : dans l'ordre du live, mais le meilleur clip à la fin, pour finir en beauté (demande de Sky)."""
+    if len(clips) < 2:
+        return clips
+    best = max(clips, key=lambda c: (c.score, c.start))      # à égalité : le plus tardif, l'ordre du live bouge moins
+    return [c for c in clips if c is not best] + [best]
+
+
+def _spread(clips: list[Clip], target: float) -> list[Clip]:
+    """Best-of : les meilleurs clips, mais pas tous dans la même partie (et types variés grâce aux scores)."""
+    left, chosen, total, per_game = list(clips), [], 0.0, {}
+    while left and total < target - 1.0:
+        best = max(left, key=lambda c: c.score * SPREAD_PENALTY ** per_game.get(_game_of(c), 0))
+        left.remove(best)
+        if total + best.duration > target + 0.5:
+            continue
+        chosen.append(best)
+        total += best.duration
+        g = _game_of(best)
+        if g is not None:
+            per_game[g] = per_game.get(g, 0) + 1
+    return chosen

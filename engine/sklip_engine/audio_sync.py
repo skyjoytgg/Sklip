@@ -9,9 +9,15 @@ from __future__ import annotations
 import subprocess
 
 import numpy as np
-from scipy.signal import fftconvolve
 
 SYNC_RATE = 4000  # Hz : suffisant pour se caler à ~0,25 ms près, et rapide.
+
+
+def fftconvolve(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Convolution complète par FFT (comme scipy.signal.fftconvolve « full », sans embarquer scipy : −68 Mo)."""
+    n = len(a) + len(b) - 1
+    size = 1 << (n - 1).bit_length()
+    return np.fft.irfft(np.fft.rfft(a, size) * np.fft.rfft(b, size), size)[:n]
 
 
 def load_audio(path: str, rate: int = SYNC_RATE, start: float = 0.0, duration: float | None = None,
@@ -40,7 +46,7 @@ def find_offset(reference: np.ndarray, track: np.ndarray, rate: int = SYNC_RATE,
     """
     ref = _normalize(reference.astype(np.float64))
     trk = _normalize(track.astype(np.float64))
-    corr = fftconvolve(ref, trk[::-1], mode="full")
+    corr = fftconvolve(ref, trk[::-1])
     lags = np.arange(-len(trk) + 1, len(ref))
     max_lag = int(max_offset * rate)
     keep = np.abs(lags) <= max_lag

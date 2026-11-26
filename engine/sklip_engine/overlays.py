@@ -91,6 +91,12 @@ def overlay_events(moments: list[dict], clip_start: float, duration: float, text
             n = int(m.get("meta", {}).get("count", 1)) if m["type"] == "multikill" else 1
             kills = n if m["type"] == "multikill" else kills + 1
             label = f"{kills} KILL" + ("S" if kills > 1 else "")
+            knives = [k - clip_start for k in m.get("meta", {}).get("knives", [])]
+            if any(abs(k - t) < 0.3 for k in knives):
+                label += r"\NAU COUTEAU"                        # le kill du compteur est celui au couteau
+            for k in knives:
+                if abs(k - t) >= 0.3 and 0 <= k <= duration:
+                    ev.append(f"Dialogue: 2,{ass_time(k - 0.1)},{ass_time(min(duration, k + 1.3))},Kills,,0,0,0,,{pop}AU COUTEAU")
             ev.append(f"Dialogue: 2,{ass_time(t - 0.1)},{ass_time(min(duration, t + 1.3))},Kills,,0,0,0,,{pop}{label}")
         elif m["type"] == "clutch" and texts.get("killCounter", True):
             sit = m.get("meta", {}).get("situation", "")
