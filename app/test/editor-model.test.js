@@ -247,7 +247,8 @@ test('contexte autour des moments : 30 s avant, multi-kill depuis le 1er kill, c
   assert.deepStrictEqual(w({ type: 'laugh', t: 600 }), [570, 608]);
   // live du 26/11 : kills à 19:44, 20:03 et 20:09 (multi-kill ×3)
   assert.deepStrictEqual(w({ type: 'multikill', t: 1208.75, meta: { t_start: 1183.75 } }), [1173.75, 1216.75]);
-  assert.deepStrictEqual(w({ type: 'viewer_clip', t: 1318 }), [1293, 1326]);
+  assert.deepStrictEqual(w({ type: 'viewer_clip', t: 1318 }), [1233, 1328]);              // ~1 min 25 avant
+  assert.deepStrictEqual(w({ type: 'viewer_clip', t: 1021, meta: { before: 21, after: 9 } }), [995, 1033]);   // passage exact
 });
 
 test('couper un clip en deux à la tête de lecture', () => {

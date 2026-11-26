@@ -9,7 +9,8 @@ from typing import Iterable
 PRE_ROLL = 12.0
 POST_ROLL = 5.0
 COMBO_LEAD = 6.0                     # multi-kill / ace / clutch : s avant le premier kill
-VIEWER_CLIP = (25.0, 6.0)            # un clip viewer est créé APRÈS l'action : on remonte ~25 s avant
+VIEWER_CLIP = (85.0, 10.0)           # clip viewer : créé APRÈS l'action, extrait choisi jusqu'à ~90 s avant
+VIEWER_MAX = 100.0
 MAX_CLIP = 60.0
 
 # Score de base par type (plus c'est haut, plus le moment est prioritaire).
@@ -117,14 +118,17 @@ def moments_to_clips(moments: Iterable[Moment], pre: float = PRE_ROLL, post: flo
     clips: list[Clip] = []
     for m in ms:
         # Un multi-kill / ace couvre du premier kill (meta.t_start) au dernier (m.t).
-        if m.type == "viewer_clip" and pre == PRE_ROLL:
+        viewer = m.type == "viewer_clip" and pre == PRE_ROLL
+        if viewer and m.meta.get("before") is not None:          # passage exact du clip (vod_offset Twitch)
+            b, a = float(m.meta["before"]) + 5, float(m.meta.get("after") or 0) + 3
+        elif viewer:
             b, a = VIEWER_CLIP
         else:
             b, a = pre, post
         first = float(m.meta.get("t_start", m.t))
         start = max(0.0, min(m.t - b, first - (COMBO_LEAD if pre == PRE_ROLL else b)))
         end = m.t + a
-        start = max(start, end - MAX_CLIP)
+        start = max(start, end - (VIEWER_MAX if viewer else MAX_CLIP))
         if stream_duration is not None:
             end = min(end, stream_duration)
         if clips and start <= clips[-1].end:

@@ -652,3 +652,5 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   (cachée à l'aperçu et à l'export, texte gardé), « Tout cocher / Tout décocher ».
 - **Releases** : la construction crée une seule release brouillon avant electron-builder et la publie à la fin
   (v0.1.0 et v0.1.1 étaient en double ; la v0.1.1 n'était pas trouvée par la mise à jour auto).
+- **Clips viewers (v0.1.4)** : le viewer choisit son extrait jusqu'à ~90 s avant de créer le clip → la fenêtre
+  remonte à ~1 min 25 avant (Sky : « 1 min à 1 min 30 »), ou découpe exactement le passage quand Twitch donne vod_offset.

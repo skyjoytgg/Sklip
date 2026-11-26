@@ -12,12 +12,16 @@ const MIN_CLIP = 1.0;
 const CONTEXT_BEFORE = 30.0;     // s avant le moment (rire, kill, cri…)
 const CONTEXT_AFTER = 8.0;       // s après : la réaction, et ne pas couper le streamer qui parle encore
 const COMBO_LEAD = 10.0;         // multi-kill / ace / clutch : s avant le premier kill
-// Un clip viewer est créé APRÈS l'action : il couvre en gros les 30 s avant sa création.
-const VIEWER_CLIP = { before: 25.0, after: 8.0 };
+// Un clip viewer est créé APRÈS l'action, et le viewer choisit son extrait jusqu'à ~90 s avant (Sky : 1 min à 1 min 30).
+const VIEWER_CLIP = { before: 85.0, after: 10.0 };
 
 /** Fenêtre [début, fin] du clip proposé pour un moment. */
 function momentWindow(m) {
-  if (m.type === 'viewer_clip') return { start: m.t - VIEWER_CLIP.before, end: m.t + VIEWER_CLIP.after };
+  if (m.type === 'viewer_clip') {
+    const mt = m.meta || {};
+    if (mt.before != null) return { start: m.t - mt.before - 5, end: m.t + (mt.after || 0) + 3 };   // passage exact du clip
+    return { start: m.t - VIEWER_CLIP.before, end: m.t + VIEWER_CLIP.after };
+  }
   const first = m.meta && m.meta.t_start != null ? Number(m.meta.t_start) : m.t;
   return { start: Math.min(m.t - CONTEXT_BEFORE, first - COMBO_LEAD), end: m.t + CONTEXT_AFTER };
 }

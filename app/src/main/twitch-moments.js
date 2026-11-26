@@ -98,14 +98,19 @@ function chatMarkerMoments(messages, streamStartMs) {
 }
 
 /**
- * Clips créés par les viewers (API Get Clips). `vod_offset` donne la position exacte dans la VOD ;
- * sinon on estime depuis la date de création (le clip couvre les ~30 s précédentes).
+ * Clips créés par les viewers (API Get Clips). `vod_offset` donne la position exacte dans la VOD : on la garde
+ * (meta.before / meta.after = secondes avant / après `t`) pour découper exactement le passage choisi par le viewer.
+ * Sinon (souvent : Twitch remplit vod_offset plus tard) on estime depuis la date de création ; le viewer a pu
+ * choisir son extrait jusqu'à ~90 s avant, donc la fenêtre du clip remonte loin (Sky, 26/11 : « 1 min à 1 min 30 »).
  */
 function viewerClipMoments(clips, streamStartMs) {
   return clips.map((c) => {
-    const t = c.vod_offset != null ? c.vod_offset + (c.duration || 30) * 0.7
-      : toStreamTime(c.created_at, streamStartMs) - (c.duration || 30) * 0.3;
-    return { type: 'viewer_clip', t: Math.max(0, t), meta: { title: c.title, by: c.creator_name, views: c.view_count, url: c.url } };
+    const dur = c.duration || 30;
+    const exact = c.vod_offset != null;
+    const t = exact ? c.vod_offset + dur * 0.7 : toStreamTime(c.created_at, streamStartMs) - dur * 0.3;
+    const meta = { title: c.title, by: c.creator_name, views: c.view_count, url: c.url };
+    if (exact) Object.assign(meta, { before: Math.round(dur * 0.7 * 10) / 10, after: Math.round(dur * 0.3 * 10) / 10 });
+    return { type: 'viewer_clip', t: Math.max(0, t), meta };
   });
 }
 

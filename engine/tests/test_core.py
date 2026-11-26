@@ -17,7 +17,9 @@ def test_fenetre_large_12s_avant_5s_apres():
     assert (c.start, c.end) == (88.0, 105.0)
     # un clip viewer est créé après l'action : on remonte ~25 s avant
     [v] = moments_to_clips([Moment("viewer_clip", 1318.0)])
-    assert (v.start, v.end) == (1293.0, 1324.0)
+    assert (v.start, v.end) == (1233.0, 1328.0)          # le viewer choisit son extrait jusqu'à ~90 s avant
+    [x] = moments_to_clips([Moment("viewer_clip", 1021.0, meta={"before": 21, "after": 9})])
+    assert (x.start, x.end) == (995.0, 1033.0)           # position exacte connue (vod_offset)
 
 
 def test_meilleur_clip_garde_meme_si_plus_long_que_la_cible():

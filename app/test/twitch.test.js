@@ -55,6 +55,7 @@ test('clips des viewers', () => {
   ], START);
   assert.strictEqual(a.t, 1021);
   assert.strictEqual(b.t, 2021);
+  assert.deepStrictEqual([a.meta.before, a.meta.after, b.meta.before], [21, 9, undefined]);   // position exacte gardée si connue
 });
 
 test('temps du stream → temps de l\'enregistrement', () => {
