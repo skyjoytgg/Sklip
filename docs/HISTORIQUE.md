@@ -623,6 +623,9 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   16:9 par défaut, options cochées), tests, rendu regardé.
 - Dépôt GitHub passé en public par Sky (pour que sa pote télécharge l'installeur et ait les mises à jour).
   `scripts/write-config.js` garde maintenant le config.json du dépôt (avant, il effaçait `relayUrl`),
-  publication en « release » (pas en brouillon). Serveur des réactions pas encore en ligne (`relayUrl` vide).
+  publication en « release » (pas en brouillon).
+- Serveur des réactions **en ligne** (26/11) : `https://sklip-relay.sklip-relay.workers.dev` (compte Cloudflare de Sky,
+  base D1 `sklip-relay` en Europe de l'Est), adresse dans `app/config.json`. Vérifié : répond 401 sans jeton Twitch.
+  Pas encore testé : une vraie réaction entre deux PC.
 - Piège trouvé : les commandes lancées depuis l'appli Claude écrivent dans une copie privée de %APPDATA% ;
   le Python 3.13 de uv (utilisé par `engine\.venv`) n'existait que là → copié dans le vrai `%APPDATA%\uv\python`.

@@ -9,7 +9,7 @@ TWITCH_CLIENT_ID = "88d0w53zc9hsemjvt486ekjgmkep9k"
 [[d1_databases]]
 binding = "DB"
 database_name = "sklip-relay"
-database_id = "A_REMPLIR_APRES_CREATION"
+database_id = "3c151525-15c4-4e33-b149-1e55f41bea42"
 
 # Ménage quotidien : tout ce qui a plus de 7 jours est effacé.
 [triggers]
