@@ -30,9 +30,17 @@ jobs:
 
       - name: Tests du moteur
         working-directory: engine
+        shell: pwsh
         run: |
           python -m pip install -r requirements.txt
-          python -m pytest -q
+          # En cas d'échec, les tests en erreur sont aussi affichés en « annotations » (visibles sans se connecter).
+          python -m pytest -q -rfE --tb=line 2>&1 | Tee-Object -FilePath pytest.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content pytest.txt | Select-String -Pattern '^(FAILED|ERROR)|Error:|error:|assert' |
+              Select-Object -First 20 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit $code
+          }
 
       - name: Construction du moteur (PyInstaller)
         working-directory: engine
