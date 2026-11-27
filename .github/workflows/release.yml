@@ -69,7 +69,12 @@ jobs:
       - name: Release brouillon (une seule)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" --draft --title "${{ github.ref_name }}" --notes "Sklip ${{ github.ref_name }}" --repo "${{ github.repository }}"
+        shell: bash
+        run: |
+          v=$(node -p "require('./app/package.json').version")
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "::error::Le tag $GITHUB_REF_NAME ne correspond pas à la version de app/package.json ($v)"; exit 1; fi
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes "Sklip $GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
 
       - name: Installeur
         working-directory: app

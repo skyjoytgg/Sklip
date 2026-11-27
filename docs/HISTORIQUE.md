@@ -714,6 +714,8 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   pas tout de suite le brouillon créé avant lui et envoyait l'installeur dans un autre brouillon → plus de mise à
   jour automatique). Maintenant : `npm run release` construit seulement (`--publish never`), puis `gh release upload`
   envoie latest.yml + l'installeur + le .blockmap dans LA release, et la construction échoue s'il manque un fichier.
+  Vraie cause trouvée ensuite : `app/package.json` était resté en 0.1.8 (seul package-lock avait été changé) →
+  installeur « 0.1.8 ». La construction vérifie maintenant que le tag = la version de app/package.json.
   - **Pack de musiques vidé** (Sky : « enlève les anciens sons ») : les 10 morceaux synthwave CC0 sont retirés
     (récupérables au commit 7dfc59b). Les 5 lofi de Sky (Pixabay, licence qui interdit sans doute de les redistribuer
     dans une appli) sont dans **son** dossier « Mes musiques », renommés « lofi 1 » à « lofi 5 ». Il en ajoutera d'autres.
