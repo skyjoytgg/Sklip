@@ -30,6 +30,8 @@ export const EDITOR_TOUR = [
     text: "Juste en dessous, « Chat en jeu » : les messages écrits dans le chat de Valorant pendant le clip, lus tout seuls (étiquette bleue « allié » ou rouge « ennemi »). Coche-en un : il s'affiche 3 s sur la vidéo, comme un message Twitch." },
   { target: 'mixer', title: 'Le mixeur',
     text: 'Règle le son de tout le montage : jeu, micro, Discord, musique. La musique est coupée par défaut à cause des droits d\'auteur.' },
+  { target: 'bgm', since: 5, title: 'Musique libre de droits',
+    text: "Coche « 🎶 Musique libre » : Sklip choisit une musique libre de droits selon la durée du montage (plusieurs enchaînées pour un long Best-of). ▶ pour écouter, « 🔀 Changer » pour en prendre d'autres. Ajoute les tiennes dans « Mes musiques »." },
   { target: 'format', title: 'Format et durée',
     text: '9:16 pour TikTok, Shorts et Reels, 16:9 pour YouTube. La durée visée se règle par thème dans les Réglages (1 min pour un TikTok, 5 min pour le Best-of).' },
   { target: 'duree', since: 4, title: 'La durée du montage',
@@ -43,7 +45,7 @@ export const EDITOR_TOUR = [
 ];
 
 /** Version du tuto : les étapes `since` plus récentes que ce qu'a vu le streamer lui sont montrées seules. */
-export const TOUR_VERSION = 4;
+export const TOUR_VERSION = 5;
 export function tourSteps(steps, seen) {
   return seen ? steps.filter((s) => (s.since || 1) > seen).map((s) => ({ ...s, title: `Nouveau : ${s.title}` })) : steps;
 }

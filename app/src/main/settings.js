@@ -27,6 +27,7 @@ const DEFAULTS = {
     useObsTracksIfPresent: false,
     volumes: { game: 1, mic: 1, discord: 1, music: 0 },
   },
+  music: { on: false, volume: 1 },       // musique libre de droits ajoutée aux nouveaux montages (pack + « Mes musiques »)
   viewerPeak: { mode: 'record', risePercent: 20, riseMinutes: 3, threshold: 50 },
   chatKeywords: ['LUL', 'KEKW', 'OMEGALUL', 'mdr', 'ptdr'],
   markerHotkey: 'F9',

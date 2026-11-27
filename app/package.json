@@ -43,6 +43,10 @@
       {
         "from": "../vendor/ffmpeg",
         "to": "ffmpeg"
+      },
+      {
+        "from": "music",
+        "to": "music"
       }
     ],
     "win": {

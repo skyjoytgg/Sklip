@@ -698,3 +698,15 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   - Montage refait (menu Durée, réanalyse) : les choix de l'ancien montage sont repris (`editor-model.carryChoices` :
     bulles cochées, répliques, sous-titres, textes, volumes, format, teaser enlevé).
   - Live analysé avant la v0.1.7 : « Réanalyser » une fois pour avoir les win / loose / rr.
+- **v0.1.9 (27/11)** :
+  - **Onglet « Clips »** (Sky : « voir nos clips finis, juste à les glisser vers TikTok Studio ou YouTube ») : toutes
+    les vidéos exportées (`montages/` de chaque stream), titre + hashtags à copier, glisser la vidéo dans la page
+    d'envoi (`startDrag` d'Electron), boutons TikTok Studio / YouTube Studio, « Déjà posté » (gardé dans la fiche .json).
+  - **Musique libre de droits** (Sky : « bandes son open source, choisies selon la durée, postables sans problème
+    de droits » ; style voulu : Chase Atlantic, The Weeknd, The Neighbourhood). Rien de CC0 dans ce style avec voix :
+    pack de 10 morceaux **synthwave CC0** d'OpenGameArt (`app/music`, crédits dans `CREDITS.txt`) + dossier
+    **« Mes musiques »** (Documents/Sklip/Musiques) pour les siennes (ex. Pixabay « dark rnb », licence Pixabay,
+    pas CC0 : pas dans le pack). Éditeur : « 🎶 Musique libre » dans le mixeur (▶ écouter, 🔀 Changer, volume) ;
+    `planMusic` : un morceau s'il couvre la durée, sinon plusieurs enchaînés (fondu de 2 s, `render.music_inputs`),
+    volume égalisé (loudnorm), baisse sous la voix, fondu de fin. Réglage « Musique libre de droits » (décoché par
+    défaut) pour les nouveaux montages et l'export automatique. Tuto v5.

@@ -53,7 +53,7 @@ function makeClip(c) {
   };
 }
 
-function createProject({ clips = [], streamDuration, fmt = '9x16', bpm = null, volumes, texts } = {}) {
+function createProject({ clips = [], streamDuration, fmt = '9x16', bpm = null, volumes, texts, bgm } = {}) {
   return {
     streamDuration,
     fmt,
@@ -62,7 +62,48 @@ function createProject({ clips = [], streamDuration, fmt = '9x16', bpm = null, v
     volumes: { ...DEFAULT_VOLUMES, ...(volumes || {}) },
     autoMix: true,               // niveaux cohérents, voix devant, volume final -14 LUFS
     texts: { subtitles: true, enabled: false, ace: true, killCounter: true, pseudo: '', ...(texts || {}) },
+    bgm: { on: false, seed: 0, volume: 1, ...(bgm || {}) },   // musique libre de droits ajoutée (voir planMusic)
   };
+}
+
+// ── Musique libre de droits (Sky 27/11) ────────────────────────────────────────────────────────────────────
+// Morceaux du pack Sklip + du dossier « Mes musiques », choisis pour couvrir toute la durée du montage :
+// un seul morceau s'il est assez long, sinon plusieurs enchaînés avec un fondu (le moteur fait le fondu).
+const MUSIC_XFADE = 2.0;          // comme le moteur (render.MUSIC_XFADE)
+
+function seeded(seed) {
+  let x = ((Math.abs(Math.floor(seed)) * 2654435761 + 12345) % 2147483646) + 1;
+  const next = () => (x = (x * 48271) % 2147483647) / 2147483647;
+  for (let i = 0; i < 8; i++) next();          // les premiers tirages se ressemblent d'un numéro à l'autre
+  return next;
+}
+
+/** [{ file, start, dur, title, artist }] : morceaux joués l'un après l'autre. `seed` change le tirage (« Changer »). */
+function planMusic(tracks, total, seed = 0) {
+  const pool = (tracks || []).filter((t) => t && t.file && t.duration > MUSIC_XFADE * 3);
+  if (!pool.length || !(total > 0)) return [];
+  const rnd = seeded(seed + 1);
+  const order = pool.map((t) => [rnd(), t]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  const one = order.find((t) => t.duration >= total);
+  const pick = (t, dur) => ({ file: t.file, start: 0, dur: round(dur), title: t.title || null, artist: t.artist || null });
+  if (one) return [pick(one, total)];
+  const out = [];
+  let left = total;
+  for (let i = 0; left > 0 && i < 50; i++) {
+    const t = order[i % order.length];
+    if (order.length > 1 && out.length && out[out.length - 1].file === t.file) continue;
+    const dur = Math.min(left, t.duration - MUSIC_XFADE);
+    out.push(pick(t, dur));
+    left -= dur;
+  }
+  return out;
+}
+
+const musicName = (m) => (m.title ? (m.artist ? `${m.title} – ${m.artist}` : m.title)
+  : String(m.file).split(/[\\/]/).pop().replace(/\.[a-z0-9]+$/i, ''));
+
+function setBgm(p, patch) {
+  return { ...p, bgm: { on: false, seed: 0, volume: 1, ...(p.bgm || {}), ...patch } };
 }
 
 const totalDuration = (p) => p.clips.reduce((s, c) => s + (c.end - c.start), 0);
@@ -674,7 +715,8 @@ function clipCam(c, cam, camManual = false) {
   return c.layout === 'cam_full' || !camManual ? c.cam : cam;
 }
 
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {} }) {
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {}, musicTracks = [] }) {
+  const bgm = p.bgm && p.bgm.on ? planMusic(musicTracks, totalDuration(p), p.bgm.seed) : [];
   return {
     post: post || null,
     auto_mix: p.autoMix !== false,
@@ -686,6 +728,8 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     bpm: p.bpm,
     music_file: musicFile || null,
     music_start: musicStart || 0,
+    music: bgm.map(({ file, start, dur }) => ({ file, start, dur })),
+    music_volume: bgm.length ? (p.bgm.volume ?? 1) : 0.8,
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
       focus: c.layout === 'cam_full' && c.focus ? c.focus : undefined,
@@ -711,5 +755,6 @@ module.exports = {
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   chatNear, gameChatNear, gameChatFromSession, carryChoices, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,
+  planMusic, musicName, setBgm, MUSIC_XFADE,
   linesFromWords, lineText, setClipWords, setLineText, setLineOn, addLine, clipWordsForRender, subtitleAt, snapDuration, fmtTime,
 };

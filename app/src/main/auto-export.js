@@ -10,14 +10,14 @@ const S = require('../renderer/style-model');
 const pipeline = require('./pipeline');
 
 /** Montages à exporter pour une session : [{ theme, fmt, project, output, post }]. */
-function plan(session, { formats = ['9x16'], cam, channel = '', teaser = true, style = null } = {}) {
+function plan(session, { formats = ['9x16'], cam, channel = '', teaser = true, style = null, bgm = null } = {}) {
   const out = [];
   for (const theme of Object.keys(session.clips || {})) {
     const es = pipeline.editorSession(session, theme, { cam });
     if (!es.clips.length) continue;
     const clips = es.clips.map((c) => ({ ...c, moments: es.moments.filter((m) => m.t >= c.start && m.t <= c.end) }));
     for (const fmt of formats) {
-      let project = M.createProject({ clips, streamDuration: es.stream.duration, fmt });
+      let project = M.createProject({ clips, streamDuration: es.stream.duration, fmt, bgm: bgm || undefined });
       project = S.applyStyle(project, style).project;                 // les habitudes du streamer
       if (teaser && S.wantsTeaser(style)) project = M.setTeaser(project);
       const post = M.suggestPost(project, { streamTitle: es.stream.title, theme, channel });
@@ -32,8 +32,9 @@ function plan(session, { formats = ['9x16'], cam, channel = '', teaser = true, s
  * Exporte tous les montages d'une session. Ne remplace jamais un fichier déjà là (export fait à la main).
  * Garde aussi le montage dans montage-<thème>.json (s'il n'existe pas) : l'éditeur rouvre exactement ce qui a été exporté.
  */
-async function autoExport(session, { engine, formats, cam, channel, teaser, style, log, onStep } = {}) {
-  const jobs = plan(session, { formats, cam, channel, teaser, style });
+async function autoExport(session, { engine, formats, cam, channel, teaser, style, log, onStep, bgm, musicTracks } = {}) {
+  const jobs = plan(session, { formats, cam, channel, teaser, style, bgm });
+  const music = bgm && bgm.on && musicTracks ? await musicTracks() : [];
   const done = [];
   for (const [i, j] of jobs.entries()) {
     const saved = path.join(session.folder, `montage-${j.theme}.json`);
@@ -42,7 +43,7 @@ async function autoExport(session, { engine, formats, cam, channel, teaser, styl
     if (onStep) onStep(i, jobs.length, j);
     try {
       fs.mkdirSync(path.dirname(j.output), { recursive: true });
-      await engine('render', M.toRenderSpec(j.project, { video: session.video, output: j.output, cam: j.cam, tracks: j.tracks, post: j.post }));
+      await engine('render', M.toRenderSpec(j.project, { video: session.video, output: j.output, cam: j.cam, tracks: j.tracks, post: j.post, musicTracks: music }));
       done.push(j);
     } catch (e) {
       if (log) log.warn(`Export automatique ${j.theme} ${j.fmt} :`, e);

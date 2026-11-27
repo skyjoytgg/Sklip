@@ -102,6 +102,7 @@ class MontageSpec:
     music_file: str | None = None                  # musique de la bibliothèque (optionnelle)
     music_start: float = 0.0                       # premier temps de la musique
     music_volume: float = 0.8                      # volume de cette musique ajoutée
+    music: list = field(default_factory=list)      # musiques libres enchaînées : [{file, start, dur}] (voir music_inputs)
     encoder: str | None = None
     texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
     subtitles: bool = False                         # sous-titres auto mot par mot (français)
@@ -308,6 +309,45 @@ def added_music_volume(spec: MontageSpec) -> str:
     return f"volume='if({cond},0,{spec.music_volume:.3f})':eval=frame"
 
 
+MUSIC_XFADE = 2.0            # fondu enchaîné entre deux musiques
+MUSIC_FADE_OUT = 2.5         # la musique s'éteint doucement à la fin du montage
+
+
+def music_playlist(spec: MontageSpec) -> list[dict]:
+    """Morceaux à jouer les uns après les autres (l'ancienne musique unique `music_file` = un seul morceau)."""
+    if spec.music:
+        return [m for m in spec.music if m.get("file")]
+    if spec.music_file:
+        return [{"file": spec.music_file, "start": spec.music_start}]
+    return []
+
+
+def music_inputs(spec: MontageSpec, total: float, first_input: int = 1) -> tuple[list[str], str]:
+    """Arguments FFmpeg des musiques + filtre qui les enchaîne (fondu de MUSIC_XFADE s) → [mus].
+    Le volume de chaque morceau est égalisé (sinon un morceau fort et un morceau doux se suivent mal),
+    et la musique s'éteint en fondu à la fin du montage."""
+    pl = music_playlist(spec)
+    args, parts, labels = [], [], []
+    for i, m in enumerate(pl):
+        if m.get("start"):
+            args += ["-ss", f"{float(m['start']):.3f}"]
+        if m.get("dur") and i < len(pl) - 1:
+            args += ["-t", f"{float(m['dur']) + MUSIC_XFADE:.3f}"]
+        args += ["-i", m["file"]]
+        lab = f"mu{i}"
+        norm = f"loudnorm=I={mixing.TARGET_DB['music']}:TP=-2:LRA=11," if spec.auto_mix else ""
+        parts.append(f"[{first_input + i}:a]{norm}aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[{lab}]")
+        labels.append(lab)
+    cur = labels[0]
+    for i, lab in enumerate(labels[1:], 1):
+        out = f"mx{i}"
+        parts.append(f"[{cur}][{lab}]acrossfade=d={MUSIC_XFADE}:c1=tri:c2=tri[{out}]")
+        cur = out
+    fade_at = max(0.0, total - MUSIC_FADE_OUT)
+    parts.append(f"[{cur}]atrim=0:{total:.3f},afade=t=out:st={fade_at:.3f}:d={MUSIC_FADE_OUT}[mus]")
+    return args, ";".join(parts)
+
+
 PARALLEL = 2                 # clips préparés en même temps à l'export (au-delà, la carte graphique sature)
 
 
@@ -349,18 +389,22 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
             for p in parts:
                 f.write(f"file '{p}'\n")
         final = os.path.join(tmp, "final.mp4") if spec.auto_mix else spec.output
-        joined = os.path.join(tmp, "joined.mp4") if spec.music_file else final
+        playlist = music_playlist(spec)
+        joined = os.path.join(tmp, "joined.mp4") if playlist else final
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
                         "-c", "copy", "-movflags", "+faststart", joined], check=True, capture_output=True)
-        if spec.music_file:
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-ss", f"{spec.music_start:.3f}",
-                            "-i", spec.music_file, "-filter_complex",
-                            (f"[1:a]{added_music_volume(spec)}[m0];[0:a]asplit[a0][k];"
-                             f"[m0][k]sidechaincompress={mixing.DUCK['music']}[m];"   # la musique s'efface sous la voix
-                             "[a0][m]amix=inputs=2:normalize=0:duration=first[a]") if spec.auto_mix else
-                            f"[1:a]{added_music_volume(spec)}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]",
-                            "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                            "-movflags", "+faststart", final], check=True, capture_output=True)
+        if playlist:
+            total = sum(c.end - c.start for c in spec.clips)
+            margs, mfilter = music_inputs(spec, total)
+            vol = added_music_volume(spec)
+            mix = (f"{mfilter};[mus]{vol}[m0];[0:a]asplit[a0][k];"
+                   f"[m0][k]sidechaincompress={mixing.DUCK['music']}[m];"   # la musique s'efface sous la voix
+                   "[a0][m]amix=inputs=2:normalize=0:duration=first[a]") if spec.auto_mix else                   f"{mfilter};[mus]{vol}[m];[0:a][m]amix=inputs=2:normalize=0:duration=first[a]"
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", joined, *margs, "-filter_complex", mix,
+                                "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                                "-movflags", "+faststart", final], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(f"FFmpeg a échoué en ajoutant la musique : {r.stderr[-800:]}")
         if spec.auto_mix:
             if progress:
                 progress(len(spec.clips) / (len(spec.clips) + 1), "Réglage du volume final")

@@ -41,6 +41,22 @@ const mock = (() => {
       }
       return { output: 'Sklip/Streams/2026-11-24_ranked-avec-les-potes/montages/sklip_kills_9x16.mp4' };
     },
+    listClips: async () => [
+      { file: 'C:/demo/sklip_kills_9x16.mp4', name: 'sklip_kills_9x16.mp4', stream: 'Ranked avec les potes', day: '2026-11-26',
+        themeName: 'Kills', fmt: '9x16', size: 41e6, mtime: Date.now() - 3600e3, posted: false,
+        post: { title: 'Triple kill au Vandal 🔥', hashtags: ['#valorant', '#valorantclips', '#fyp'] } },
+      { file: 'C:/demo/sklip_bestof_16x9.mp4', name: 'sklip_bestof_16x9.mp4', stream: 'Ranked avec les potes', day: '2026-11-26',
+        themeName: 'Best-of', fmt: '16x9', size: 180e6, mtime: Date.now() - 7200e3, posted: true,
+        post: { title: 'Best-of du live : VICTOIRE 13-11 🏆 (+16 RR)', hashtags: ['#valorant', '#ranked'] } },
+    ],
+    clipPosted: async () => true,
+    showClip: noop, openClip: noop, openUploadSite: noop, dragClip: noop,
+    listMusic: async () => [
+      { file: 'C:/demo/Night Drive.mp3', title: 'Night Drive', artist: 'Pack Sklip', duration: 152 },
+      { file: 'C:/demo/Neon Tears.mp3', title: 'Neon Tears', artist: 'Pack Sklip', duration: 128 },
+      { file: 'C:/demo/Afterhours.mp3', title: 'Afterhours', artist: 'Pack Sklip', duration: 175 },
+    ],
+    openMusicFolder: noop,
     listStreams: async () => [
       { name: '2026-11-24_ranked-avec-les-potes', title: 'Ranked avec les potes', folder: '',
         stats: { kills: 87, aces: 1, raids: [{ channel: 'Kamel', viewers: 42 }], peak_viewers: 134 } },

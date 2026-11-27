@@ -11,6 +11,8 @@ const tm = require('./twitch-moments');
 const perf = require('./perf');
 const { Logger } = require('./logger');
 const pipeline = require('./pipeline');
+const clipsLib = require('./clips');
+const musicLib = require('./music');
 const { autoExport } = require('./auto-export');
 const style = require('../renderer/style-model');
 const { StyleStore } = require('./style-store');
@@ -109,6 +111,15 @@ const engineLocation = () => ({
 
 const libraryRoot = () => settings.get().libraryRoot || path.join(app.getPath('documents'), 'Sklip');
 
+/** Musiques libres de droits : le pack de Sklip + « Mes musiques » (durée lue par le moteur, gardée en cache). */
+async function listMusic() {
+  const pack = musicLib.packDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appDir: path.join(__dirname, '..', '..') });
+  const files = [...musicLib.audioFiles(pack), ...musicLib.audioFiles(musicLib.userDir(libraryRoot()))];
+  if (!files.length) return [];
+  const r = await runEngine(engineLocation(), 'music-scan', { files, cache: path.join(app.getPath('userData'), 'musiques.json') });
+  return r.tracks.map((t) => ({ ...t, mine: !path.resolve(t.file).toLowerCase().startsWith(path.resolve(pack).toLowerCase() + path.sep) }));
+}
+
 /** Lance une commande du moteur (avec avancement envoyé à l'interface) et note les erreurs dans le journal. */
 async function engine(command, params = {}) {
   log.info(`Moteur : ${command}`);
@@ -188,7 +199,7 @@ function runAutoExport(session) {
   const s = settings.get();
   jadd('analysis', 'Export automatique des montages', { detail: `${(s.formats || []).join(' · ')}` });
   return autoExport(session, {
-    engine, formats: s.formats, cam: s.cam, teaser: s.teaser !== false, log,
+    engine, formats: s.formats, bgm: s.music, musicTracks: () => listMusic().catch(() => []), cam: s.cam, teaser: s.teaser !== false, log,
     style: s.learnStyle !== false ? style.profile(styleStore().all()) : null,
     channel: twitch && twitch.isConnected() ? twitch.tokens.user.login : '',
     onStep: (i, n, j) => send('analysis:state', { running: true, video: session.video, title: `Export ${i + 1}/${n} : ${j.theme} ${j.fmt.replace('x', ':')}`, startedAt: Date.now(), fraction: i / n }),
@@ -530,6 +541,24 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('log:openFolder', () => shell.openPath(log.dir));
   ipcMain.handle('streams:list', () => listStreams());
+  // Onglet « Clips » : vidéos exportées, à glisser vers TikTok Studio / YouTube Studio.
+  const clipInLibrary = (f) => typeof f === 'string' && path.resolve(f).toLowerCase().startsWith(path.join(libraryRoot(), 'Streams').toLowerCase() + path.sep)
+    && /\.mp4$/i.test(f) && fs.existsSync(f);
+  ipcMain.handle('clips:list', () => clipsLib.listClips(libraryRoot()));
+  ipcMain.handle('clips:posted', (_e, file, posted) => clipInLibrary(file) && clipsLib.setPosted(file, !!posted));
+  ipcMain.handle('clips:show', (_e, file) => { if (clipInLibrary(file)) shell.showItemInFolder(file); });
+  ipcMain.handle('clips:open', (_e, file) => (clipInLibrary(file) ? shell.openPath(file) : null));
+  ipcMain.handle('clips:site', (_e, which) => {
+    const url = { tiktok: 'https://www.tiktok.com/tiktokstudio/upload', youtube: 'https://studio.youtube.com' }[which];
+    if (url) shell.openExternal(url);
+  });
+  // Glisser une vidéo de Sklip vers la page d'envoi de TikTok / YouTube (le navigateur reçoit le vrai fichier).
+  ipcMain.on('clips:drag', (e, file) => {
+    if (!clipInLibrary(file)) return;
+    e.sender.startDrag({ file, icon: nativeImage.createFromDataURL(clipsLib.DRAG_ICON) });
+  });
+  ipcMain.handle('music:list', () => listMusic());
+  ipcMain.handle('music:openFolder', () => shell.openPath(musicLib.ensureUserDir(libraryRoot())));
   ipcMain.handle('journal:list', () => journal.list());
   ipcMain.handle('journal:get', (_e, id) => journal.get(id));
   const streamsDir = () => path.join(libraryRoot(), 'Streams');
@@ -612,6 +641,7 @@ app.whenReady().then(() => {
       try { if (olds.length) es.previous = JSON.parse(fs.readFileSync(olds[0], 'utf8')); } catch { /* illisible : sans */ }
     }
     es.style = settings.get().learnStyle !== false ? style.profile(styleStore().all()) : null;
+    es.bgm = settings.get().music || null;           // musique libre ajoutée par défaut aux nouveaux montages
     return es;
   }
   ipcMain.handle('dialog:openVideo', async () => {

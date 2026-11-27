@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
 import { Editor } from './editor.jsx';
+import { Clips } from './clips.jsx';
 import { TOUR_VERSION } from './tour.jsx';
 import { THEMES, MODES, durationLabel } from './constants.js';
 import { ThemeDurations, durationsSummary } from './durations.jsx';
@@ -24,7 +25,7 @@ function Sidebar({ page, setPage, obs, analysis = {} }) {
   useTick(analysis.running);
   const [mk, setMk] = useState(null);
   useEffect(() => api.onMarker((m) => { setMk(m); setTimeout(() => setMk((x) => (x === m ? { ...m, old: true } : x)), 3000); }), []);
-  const items = [['accueil', 'Accueil'], ['lives', 'Lives'], ['montage', 'Montage'], ['historique', 'Historique'], ['reglages', 'Réglages']];
+  const items = [['accueil', 'Accueil'], ['lives', 'Lives'], ['montage', 'Montage'], ['clips', 'Clips'], ['historique', 'Historique'], ['reglages', 'Réglages']];
   return (
     <aside className="side">
       <div className="logo">Sk<span>lip</span></div>
@@ -218,6 +219,11 @@ function Reglages({ settings, setSettings }) {
         <div><input type="checkbox" checked={!!settings.autoExport} onChange={(e) => set({ autoExport: e.target.checked })} />
           <div className="note">Après l'analyse, Sklip exporte chaque montage (tous tes thèmes, tous tes formats) dans le dossier
             du live : tu n'as plus qu'à poster. Tu peux toujours les ouvrir dans Montage pour les retoucher et réexporter.</div></div></div>
+      <div className="field"><label>Musique libre de droits</label>
+        <div><input type="checkbox" checked={!!(settings.music && settings.music.on)} onChange={(e) => set({ music: { on: e.target.checked } })} />
+          <div className="note">Ajoute une musique libre de droits à tes nouveaux montages (postable sur TikTok et YouTube). Sklip la choisit
+            selon la durée : une seule si elle est assez longue, sinon plusieurs enchaînées. Elle baisse quand tu parles.</div>
+          <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => api.openMusicFolder()}>📁 Ouvrir « Mes musiques »</button></div></div>
       <div className="field"><label>Capturer les pistes séparées (jeu, micro, Discord, musique)</label>
         <div><input type="checkbox" checked={settings.audio.captureEnabled} onChange={(e) => set({ audio: { captureEnabled: e.target.checked } })} />
           <div className="note">Enregistrés par Sklip à part, puis calés automatiquement sur ta vidéo OBS.</div></div></div>
@@ -289,6 +295,7 @@ function App() {
     <div className="app">
       <Sidebar page={page} setPage={setPage} obs={obs} analysis={analysis} />
       <main className={page === 'montage' ? 'full' : ''}>
+        {page === 'clips' && <Clips setPage={setPage} />}
         {page === 'montage' && !session && <NoSession settings={settings} openSession={openSession} setPage={setPage} />}
         {page === 'montage' && session && <Editor key={`${session.stream.folder}|${session.theme}|${session.target}`} session={session} onBack={() => setPage('accueil')}
           onTheme={(th) => openSession(session.folderKey, th)}

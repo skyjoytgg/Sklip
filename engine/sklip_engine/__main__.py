@@ -48,7 +48,7 @@ def cmd_render(p):
         volumes={**MontageSpec.__dataclass_fields__["volumes"].default_factory(), **p.get("volumes", {})},
         texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")), auto_mix=p.get("auto_mix", True),
         music_file=p.get("music_file"), music_start=p.get("music_start", 0.0),
-        music_volume=p.get("music_volume", 0.8), encoder=p.get("encoder"),
+        music_volume=p.get("music_volume", 0.8), music=p.get("music") or [], encoder=p.get("encoder"),
     )
     out = render_montage(spec, progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
     if p.get("post"):
@@ -218,6 +218,12 @@ def cmd_stream_folder(p):
     return folder
 
 
+def cmd_music_scan(p):
+    """Durée (et tempo) des musiques libres : {"tracks": [{file, duration, bpm}]}. Un fichier illisible est ignoré."""
+    from .music import scan
+    return {"tracks": scan(p.get("files", []), p.get("cache"))}
+
+
 COMMANDS = {
     "version": lambda p: {"version": __version__},
     "themes": lambda p: {"themes": THEMES},
@@ -239,6 +245,7 @@ COMMANDS = {
     "scan-chunk": cmd_scan_chunk,
     "thumb": cmd_thumb,
     "focus": cmd_focus,
+    "music-scan": cmd_music_scan,
 }
 
 

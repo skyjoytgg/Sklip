@@ -1,0 +1,21 @@
+Pack de musiques libres de droits de Sklip
+==========================================
+
+Uniquement des morceaux sous licence CC0 1.0 (domaine public) :
+utilisables dans des vidéos monétisées (TikTok, YouTube…), sans obligation de citer l'auteur.
+Merci quand même aux auteurs ! Convertis en mp3 192 kbit/s pour Sklip (sans autre modification).
+
+Fichier                     Titre                    Auteur            Page d'origine
+eyeless.mp3                 Eyeless (Retrowave)      Never Sleep       https://opengameart.org/content/eyeless-retrowave
+synth-wave.mp3              Synth Wave               Pro Sensory (Alex McCulloch)  https://opengameart.org/content/synth-wave
+cool-80s-synth-wave.mp3     Cool 80's Synth Wave     Pro Sensory (Alex McCulloch)  https://opengameart.org/content/space-synth-wave
+dark-night.mp3              Dark Night               Pro Sensory (Alex McCulloch)  https://opengameart.org/content/dark-night
+lost-in-the-snow-wave.mp3   Lost in the Snow Wave    hatmix            https://opengameart.org/content/lost-in-the-snow-wave
+80s-mysterywave.mp3         80s Mysterywave          DesertDev         https://opengameart.org/content/80s-mysterywave-music
+long-road.mp3               Long Road                oglsdl            https://opengameart.org/content/long-road
+slipstream.mp3              Slipstream               cinameng (James Gargette)     https://opengameart.org/content/slipstream
+diode.mp3                   Diode                    Tsorthan Grove    https://opengameart.org/content/diode
+slampe.mp3                  Slampe                   Fupi              https://opengameart.org/content/slampe-synthwave-house
+
+Licences vérifiées le 27/11/2026 sur chaque page (CC0 ; « Eyeless » est proposé en CC0, CC-BY 3.0 et CC-BY 4.0 :
+on l'utilise sous CC0).

@@ -24,7 +24,8 @@ function initProject(session) {
     ...c, moments: session.moments.filter((m) => m.t >= c.start && m.t <= c.end),
   }));
   // Nouveau montage : ajusté aux habitudes du streamer (s'il en a), puis teaser au début, enlevable d'un clic.
-  const styled = S.applyStyle(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16' }), session.style);
+  const bgm = (session.previous && session.previous.bgm) || session.bgm || undefined;   // musique libre (Réglages)
+  const styled = S.applyStyle(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16', bgm }), session.style);
   const p = { ...styled.project, learned: styled.changes };
   // Montage refait (durée changée, réanalyse) : tes choix de l'ancien montage sont repris.
   const q = M.carryChoices(S.wantsTeaser(session.style) ? M.setTeaser(p) : p, session.previous);
@@ -443,6 +444,47 @@ function ClipBounds({ project, setProject, clip, speech }) {
   );
 }
 
+// Musique libre de droits (pack Sklip + « Mes musiques ») : choisie selon la durée du montage.
+function BgmPanel({ project, setProject, tracks }) {
+  const audio = useRef(null);
+  const [listening, setListening] = useState(null);
+  const bgm = project.bgm || { on: false, seed: 0, volume: 1 };
+  const plan = bgm.on ? M.planMusic(tracks || [], M.totalDuration(project), bgm.seed) : [];
+  const listen = (m) => {
+    const a = audio.current;
+    if (!a) return;
+    if (listening === m.file) { a.pause(); setListening(null); return; }
+    a.src = `file:///${m.file}`;
+    a.volume = 0.6;
+    a.play().then(() => setListening(m.file)).catch(() => setListening(null));
+  };
+  useEffect(() => () => audio.current && audio.current.pause(), []);
+  return (
+    <div className="bgm" data-tour="bgm">
+      <audio ref={audio} onEnded={() => setListening(null)} />
+      <label className="check" title="Musique libre de droits : postable sur TikTok et YouTube sans souci de droits d'auteur.">
+        <input type="checkbox" checked={!!bgm.on} disabled={tracks && !tracks.length}
+          onChange={(e) => setProject(M.setBgm(project, { on: e.target.checked }))} />
+        <b>🎶 Musique libre</b></label>
+      {tracks === null && <div className="note">Recherche des musiques…</div>}
+      {tracks && !tracks.length && <div className="note">Aucune musique. Mets-en dans « Mes musiques ».</div>}
+      {plan.length > 0 && (
+        <>
+          <div className="bgm-list">{plan.map((m, i) => (
+            <button key={i} className="link" title={`Écouter « ${M.musicName(m)} »`} onClick={() => listen(m)}>
+              {listening === m.file ? '⏸' : '▶'} {M.musicName(m)}</button>))}</div>
+          <div className="row nowrap">
+            <button className="btn ghost sm" title="Prendre d'autres musiques"
+              onClick={() => setProject(M.setBgm(project, { seed: (bgm.seed || 0) + 1 }))}>🔀 Changer</button>
+            <input type="range" min="0" max="2" step="0.05" value={bgm.volume ?? 1} title={`Volume : ${Math.round((bgm.volume ?? 1) * 100)} %`}
+              onChange={(e) => setProject(M.setBgm(project, { volume: Number(e.target.value) }))} />
+          </div>
+        </>)}
+      <button className="link" onClick={() => api.openMusicFolder()}>📁 Mes musiques</button>
+    </div>
+  );
+}
+
 function Fader({ label, value, onChange, inherited }) {
   const muted = value === 0;
   return (
@@ -464,6 +506,8 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
   // sous-titres ou le chat lus tout seuls) : seuls ces montages servent à apprendre ses habitudes.
   const firstLook = useRef(S.signature(project));
   const [retargeting, setRetargeting] = useState(false);
+  const [musicTracks, setMusicTracks] = useState(null);     // musiques libres (pack + « Mes musiques »)
+  useEffect(() => { api.listMusic().then(setMusicTracks).catch(() => setMusicTracks([])); }, []);
   // Sauvegarde automatique (1 s après la dernière modification) : rien n'est perdu en fermant l'éditeur.
   useEffect(() => {
     if (!session.stream.folder || !window.sklip) return undefined;
@@ -647,7 +691,7 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
         }
       }
       const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
-        camManual: ['manual', 'project'].includes(camSource), stickers });
+        camManual: ['manual', 'project'].includes(camSource), stickers, musicTracks: musicTracks || [] });
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output, post });
     } catch (e) {
@@ -958,6 +1002,7 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
         {M.TRACKS.map((tr) => (
           <Fader key={tr} label={M.TRACK_LABELS[tr]} value={project.volumes[tr]}
             onChange={(v) => setProject(M.setGlobalVolume(project, tr, v))} />))}
+        <BgmPanel project={project} setProject={setProject} tracks={musicTracks} />
         <div className="mixer-hint">
           <label className="check" title="Chaque son est remis à niveau, la musique baisse quand tu parles, et le volume final suit TikTok / YouTube.">
             <input type="checkbox" checked={project.autoMix !== false} onChange={(e) => setProject({ ...project, autoMix: e.target.checked })} />
