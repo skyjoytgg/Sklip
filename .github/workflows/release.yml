@@ -71,13 +71,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "${{ github.ref_name }}" --draft --title "${{ github.ref_name }}" --notes "Sklip ${{ github.ref_name }}" --repo "${{ github.repository }}"
 
-      - name: Installeur + envoi des fichiers dans la release
+      - name: Installeur
         working-directory: app
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SKLIP_TWITCH_CLIENT_ID: ${{ vars.SKLIP_TWITCH_CLIENT_ID }}
           SKLIP_RELAY_URL: ${{ vars.SKLIP_RELAY_URL }}
         run: npm run release
+
+      # Envoi par gh dans LA release créée plus haut (v0.1.9 : electron-builder, qui cherchait la release lui-même,
+      # ne l'a pas trouvée tout de suite et a tout mis dans un autre brouillon → release publiée sans fichiers).
+      - name: Envoi des fichiers dans la release
+        working-directory: app/dist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" latest.yml "Sklip-Setup-$v.exe" "Sklip-Setup-$v.exe.blockmap" --clobber --repo "$GITHUB_REPOSITORY"
+          n=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length' --repo "$GITHUB_REPOSITORY")
+          if [ "$n" -lt 3 ]; then echo "::error::Release sans ses fichiers ($n)"; exit 1; fi
 
       - name: Publication de la release
         env:

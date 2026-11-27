@@ -710,3 +710,10 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
     `planMusic` : un morceau s'il couvre la durée, sinon plusieurs enchaînés (fondu de 2 s, `render.music_inputs`),
     volume égalisé (loudnorm), baisse sous la voix, fondu de fin. Réglage « Musique libre de droits » (décoché par
     défaut) pour les nouveaux montages et l'export automatique. Tuto v5.
+- **v0.1.10 (27/11)** : même contenu que la v0.1.9, qui a été publiée **sans ses fichiers** (electron-builder ne trouvait
+  pas tout de suite le brouillon créé avant lui et envoyait l'installeur dans un autre brouillon → plus de mise à
+  jour automatique). Maintenant : `npm run release` construit seulement (`--publish never`), puis `gh release upload`
+  envoie latest.yml + l'installeur + le .blockmap dans LA release, et la construction échoue s'il manque un fichier.
+  - **Pack de musiques vidé** (Sky : « enlève les anciens sons ») : les 10 morceaux synthwave CC0 sont retirés
+    (récupérables au commit 7dfc59b). Les 5 lofi de Sky (Pixabay, licence qui interdit sans doute de les redistribuer
+    dans une appli) sont dans **son** dossier « Mes musiques », renommés « lofi 1 » à « lofi 5 ». Il en ajoutera d'autres.

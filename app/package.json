@@ -10,7 +10,7 @@
     "start": "npm run build:ui && electron .",
     "test": "node --test test/*.test.js",
     "dist": "npm run build:ui && electron-builder --win nsis --publish never",
-    "release": "npm run build:ui && node scripts/write-config.js && electron-builder --win nsis --publish always"
+    "release": "npm run build:ui && node scripts/write-config.js && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.0",
