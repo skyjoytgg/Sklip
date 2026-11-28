@@ -169,6 +169,50 @@ def find_endgames(low_frames, fine_frames=None, read=None, around=None) -> list[
     return out
 
 
+RESCUE_AFTER = 30.0                    # s relus après le dernier score affiché d'une partie
+RESCUE_FPS = 2.0
+
+
+def last_scores(hud_t, scores, rounds) -> list[float]:
+    """Pour chaque partie : le dernier instant où le score du bandeau est lu. La bannière VICTOIRE / DÉFAITE
+    arrive 3 à 15 s après (vu sur le live du 28/11)."""
+    by_game: dict[int, list] = {}
+    for r in rounds:
+        by_game.setdefault(r.game, []).append(r)
+    games = sorted(by_game)
+    out = []
+    for i, g in enumerate(games):
+        a = by_game[g][-1].start
+        b = by_game[games[i + 1]][0].start if i + 1 < len(games) else float("inf")
+        seen = [float(t) for t, (x, y) in zip(hud_t, scores) if x is not None and y is not None and a <= t < b]
+        if seen:
+            out.append(round(max(seen), 2))
+    return out
+
+
+def rescue_endgames(game_ends: list[float], found: list[dict], frames, fine_frames=None, read=None) -> list[dict]:
+    """Fins de partie ratées par la passe rapide : la bannière ne reste parfois que 3 s, entre deux images clés
+    (live du 28/11, 4:20:15 « 7 DÉFAITE 13 », images clés à 4:20:14,1 et 4:20:18,3). Pour chaque fin de partie
+    sans bannière trouvée, on relit en net les 30 s après le dernier score affiché. `frames(t0, t1)` : images
+    640×360, 2 / s ; `fine_frames(t0, t1)` : la zone des points (RR_NUM)."""
+    if read is None:
+        from .gamechat import ocr_lines as read
+    out: list[dict] = []
+    for e in game_ends:
+        if any(x["type"] in ("victory", "defeat") and -60 <= x["t"] - e <= SAME_GAME for x in found + out):
+            continue
+        banners = find_banners(frames(max(0.0, e - 2), e + RESCUE_AFTER), read)
+        if not banners:
+            continue
+        end = banners[0]
+        out.append(end)
+        if fine_frames is not None:
+            rr = find_rr(fine_frames(end["t"] + 5, end["t"] + RR_AFTER), read)
+            if rr:
+                out.append({"type": "rr", "t": rr["t"], "meta": {"rr": rr["rr"], "result": end["type"], **end["meta"]}})
+    return out
+
+
 def merge_endgames(found: list[dict]) -> list[dict]:
     """Fins de partie de plusieurs lectures qui se chevauchent : une seule par fin de partie (et un seul RR)."""
     out: list[dict] = []
@@ -215,3 +259,15 @@ def scan_endgames(video: str, start: float = 0.0, duration: float | None = None)
     fine = lambda t0, t1: _frames(video, t0, t1 - t0, fps=2.0, keyframes=False, box=RR_NUM)
     near = lambda t0, t1: _frames(video, t0, t1 - t0, fps=2.0, keyframes=False)
     return find_endgames(_frames(video, start, duration), fine, around=near)
+
+
+def rescue_in_video(video: str, game_ends: list[float], found: list[dict]) -> list[dict]:
+    """rescue_endgames sur un fichier vidéo. Rien si la lecture de texte manque."""
+    try:
+        from .gamechat import _ocr_engine
+        _ocr_engine()
+    except Exception:
+        return []
+    near = lambda t0, t1: _frames(video, t0, t1 - t0, fps=RESCUE_FPS, keyframes=False)
+    fine = lambda t0, t1: _frames(video, t0, t1 - t0, fps=2.0, keyframes=False, box=RR_NUM)
+    return rescue_endgames(game_ends, found, near, fine)

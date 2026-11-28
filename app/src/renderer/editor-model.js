@@ -61,6 +61,7 @@ function createProject({ clips = [], streamDuration, fmt = '9x16', bpm = null, v
     clips: clips.map(makeClip),
     volumes: { ...DEFAULT_VOLUMES, ...(volumes || {}) },
     autoMix: true,               // niveaux cohérents, voix devant, volume final -14 LUFS
+    cleanMic: false,             // à cocher : micro coupé entre les phrases, plus de clavier ni de souris (Sky 27/11)
     texts: { subtitles: true, enabled: false, ace: true, killCounter: true, pseudo: '', ...(texts || {}) },
     bgm: { on: false, seed: 0, volume: 1, ...(bgm || {}) },   // musique libre de droits ajoutée (voir planMusic)
   };
@@ -254,6 +255,66 @@ function splitClip(p, id, at) {
   return { ...p, clips };
 }
 
+/**
+ * Enlève le passage [a, b] (temps du stream) d'un clip, ex. 10 s où on marche entre deux kills (Sky 28/11).
+ * Le clip devient deux morceaux collés l'un à l'autre : les moments restent sur les deux (chaque morceau n'affiche
+ * que ce qui tombe dedans). Si le passage touche un bord, le clip est simplement rogné.
+ */
+function cutPassage(p, id, a, b) {
+  const i = p.clips.findIndex((c) => c.id === id);
+  if (i < 0) return p;
+  const c = p.clips[i];
+  if (a > b) [a, b] = [b, a];
+  a = Math.max(c.start, a); b = Math.min(c.end, b);
+  if (b - a < 0.3) return p;
+  const keepA = a - c.start >= MIN_CLIP;
+  const keepB = c.end - b >= MIN_CLIP;
+  if (!keepA && !keepB) return p;
+  if (!keepA) return updateClip(p, id, { start: round(b) });
+  if (!keepB) return updateClip(p, id, { end: round(a) });
+  const r = splitClip(p, id, b);                          // [début → b] [b → fin]
+  const s = splitClip(r, r.clips[i].id, a);              // [début → a] [a → b] [b → fin]
+  const clips = s.clips.slice();
+  clips.splice(i, 3, { ...s.clips[i], moments: c.moments }, { ...s.clips[i + 2], moments: c.moments, joined: true });
+  return { ...p, clips };
+}
+
+const DEAD_MIN = 6;        // s : un trou de plus de 6 s entre deux kills est un temps mort
+const DEAD_KEEP = [2.5, 3];  // s gardées après un kill et avant le suivant
+
+/** Temps morts d'un clip : passages [début, fin] (temps du stream) entre deux kills éloignés, sans couper une phrase. */
+function deadTimes(c, speech = null) {
+  const kills = new Set();
+  for (const m of c.moments || []) {
+    for (const k of (m.meta && m.meta.kills) || []) kills.add(Number(k));
+    if (m.type === 'kill') kills.add(Number(m.t));
+  }
+  const ks = [...kills].filter((k) => k >= c.start && k <= c.end).sort((x, y) => x - y);
+  const out = [];
+  for (let j = 1; j < ks.length; j++) {
+    let a = ks[j - 1] + DEAD_KEEP[0];
+    let b = ks[j] - DEAD_KEEP[1];
+    const sa = sentenceAt(a, speech); if (sa) a = sa[1] + 0.2;
+    const sb = sentenceAt(b, speech); if (sb) b = sb[0] - 0.15;
+    if (ks[j] - ks[j - 1] > DEAD_MIN && b - a >= 1) out.push([round(a), round(b)]);
+  }
+  return out;
+}
+
+/** « Enlever les temps morts » : enlève tous les temps morts du clip (du dernier au premier). */
+function removeDeadTimes(p, id, speech = null) {
+  const c = p.clips.find((x) => x.id === id);
+  if (!c) return p;
+  let q = p;
+  let cur = id;
+  for (const [a, b] of deadTimes(c, speech).reverse()) {
+    const i = q.clips.findIndex((x) => x.id === cur);
+    q = cutPassage(q, cur, a, b);
+    cur = q.clips[i].id;                         // le morceau du début, qui contient encore les trous d'avant
+  }
+  return q;
+}
+
 // ---------- Teaser ----------
 // Sky (26/11) : le meilleur moment au tout début, comme un teaser (« un multi-kill mais juste les 3 kills avec
 // coupure rapide »), puis le clip entier reste à sa place dans le montage.
@@ -269,7 +330,12 @@ function teaserCuts(p) {
   let from = null;
   for (const c of p.clips) {
     if (c.teaser) continue;
-    for (const m of c.moments || []) if (!best || momentPower(m) > momentPower(best)) { best = m; from = c; }
+    for (const m of c.moments || []) {
+      const inside = m.t >= c.start && m.t <= c.end;     // clip coupé en morceaux : le moment est sur chacun
+      const better = !best || momentPower(m) > momentPower(best)
+        || (momentPower(m) === momentPower(best) && inside && !(best.t >= from.start && best.t <= from.end));
+      if (better) { best = m; from = c; }
+    }
   }
   if (!best) return [];
   const kills = ((best.meta && best.meta.kills) || []).map(Number).filter((t) => t >= from.start && t <= from.end);
@@ -715,7 +781,7 @@ function clipCam(c, cam, camManual = false) {
   return c.layout === 'cam_full' || !camManual ? c.cam : cam;
 }
 
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {}, musicTracks = [] }) {
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {}, musicTracks = [], speech = null }) {
   const bgm = p.bgm && p.bgm.on ? planMusic(musicTracks, totalDuration(p), p.bgm.seed) : [];
   return {
     post: post || null,
@@ -729,6 +795,8 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     music_file: musicFile || null,
     music_start: musicStart || 0,
     music: bgm.map(({ file, start, dur }) => ({ file, start, dur })),
+    // Clavier / souris : le micro est coupé entre les phrases (seulement si on sait quand le streamer parle).
+    mic_speech: p.cleanMic === true && tracks && tracks.mic && speech && speech.length ? speech : null,
     music_volume: bgm.length ? (p.bgm.volume ?? 1) : 0.8,
     clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
@@ -751,7 +819,7 @@ module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, peekProject, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
-  momentWindow, splitClip, teaserCuts, setTeaser, hasTeaser, TEASER_MAX, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
+  momentWindow, splitClip, cutPassage, deadTimes, removeDeadTimes, teaserCuts, setTeaser, hasTeaser, TEASER_MAX, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   chatNear, gameChatNear, gameChatFromSession, carryChoices, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,
   voiceShown, setVoice, addVoice, removeVoice, voiceAt, voicePlacement,

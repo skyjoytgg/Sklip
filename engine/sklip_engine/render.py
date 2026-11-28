@@ -103,6 +103,8 @@ class MontageSpec:
     music_start: float = 0.0                       # premier temps de la musique
     music_volume: float = 0.8                      # volume de cette musique ajoutée
     music: list = field(default_factory=list)      # musiques libres enchaînées : [{file, start, dur}] (voir music_inputs)
+    mic_speech: list | None = None                 # quand le streamer parle [(début, fin)] (temps de la vidéo) : le micro
+                                                   # est coupé entre ses phrases (clavier, souris). None = micro tel quel
     encoder: str | None = None
     texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
     subtitles: bool = False                         # sous-titres auto mot par mot (français)
@@ -242,7 +244,8 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
             chain = f"[{i}:a]aresample=48000,volume={gain:.4f}"
             if delay > 0:
                 chain += f",adelay={int(delay * 1000)}:all=1"
-            audio_parts.append(chain + f",apad,atrim=0:{dur:.3f}[t{i}]")
+            gate = mic_gate(spec.mic_speech, clip.start, dur) if name == "mic" else None
+            audio_parts.append(chain + f",apad,atrim=0:{dur:.3f}" + (f",{gate}" if gate else "") + f"[t{i}]")
             named[name] = f"[t{i}]"
         if spec.auto_mix:
             key = "mic" if "mic" in named else ("discord" if "discord" in named else None)
@@ -284,6 +287,30 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
             *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
     return cmd
+
+
+MIC_GATE_LEAD = 0.12        # s gardées avant une phrase (l'attaque du premier mot)
+MIC_GATE_TAIL = 0.25        # s gardées après (fin du mot, souffle)
+MIC_GATE_RAMP = 0.08        # fondu d'ouverture / fermeture du micro
+
+
+def mic_gate(speech, clip_start: float, dur: float) -> str | None:
+    """Filtre qui coupe le micro entre les phrases du streamer (bruits de clavier et de souris).
+    `speech` : [(début, fin)] dans le temps de la vidéo. Renvoie None s'il n'y a rien à couper."""
+    if not speech:
+        return None                                  # paroles inconnues : on ne coupe surtout pas le micro
+    r = MIC_GATE_RAMP
+    terms = []
+    for a, b in speech:
+        a, b = float(a) - clip_start - MIC_GATE_LEAD, float(b) - clip_start + MIC_GATE_TAIL
+        if b + r <= 0 or a - r >= dur:
+            continue
+        if a <= 0 and b >= dur:
+            return None                              # il parle pendant tout le clip
+        terms.append(f"clip(min((t-{a:.3f})/{r}+1,({b:.3f}-t)/{r}+1),0,1)")
+    if not terms:
+        return "volume=0"
+    return f"volume='min(1,{'+'.join(terms)})':eval=frame"
 
 
 def live_music_ranges(spec: MontageSpec) -> list[tuple[float, float]]:

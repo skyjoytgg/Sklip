@@ -719,3 +719,20 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
   - **Pack de musiques vidé** (Sky : « enlève les anciens sons ») : les 10 morceaux synthwave CC0 sont retirés
     (récupérables au commit 7dfc59b). Les 5 lofi de Sky (Pixabay, licence qui interdit sans doute de les redistribuer
     dans une appli) sont dans **son** dossier « Mes musiques », renommés « lofi 1 » à « lofi 5 ». Il en ajoutera d'autres.
+- **v0.1.11 (28/11)** :
+  - **« Sans clavier ni souris »** (case à cocher, décochée par défaut) : à l'export, le micro capturé par Sklip est
+    coupé entre les phrases (`render.mic_gate`, phrases = `speech` de l'analyse). RNNoise essayé puis abandonné
+    (voix baissée de ~10 dB, clics pas enlevés). Sky va d'abord essayer de régler son micro Fifine.
+  - **Enlever un passage** dans un clip (Sky : « 10 s où je ne fais que marcher entre deux kills ») : bouton
+    « ✂ Enlever un passage » / touche X, deux clics à la barre rouge (`cutPassage` : deux morceaux collés, les moments
+    restent sur les deux). Sur un multi-kill : « ⏩ Enlever les temps morts entre les kills » (`deadTimes` : trous de
+    plus de 6 s, on garde 2,5 s après un kill et 3 s avant le suivant, sans couper une phrase).
+  - **Heure du stream** sous la durée de chaque clip dans la timeline (« ✂ » devant un morceau coupé).
+  - **Fins de partie ratées** : sur le live du 28/11, « 7 DÉFAITE 13 » (4:20:15) n'est restée que 3 s, entre deux
+    images clés (4:20:14,1 et 4:20:18,3) → ni loose ni RR. Maintenant `endgame.rescue_endgames` relit en net les 30 s
+    après le dernier score de chaque partie sans bannière (cache `endgame-rescue.json`). Sur ce live : la défaite,
+    « -18 SC » et deux autres fins de partie ratées (14:38, 30:59). Il faut « Réanalyser » le live.
+  - **Onglet Clips** : « Ouvrir TikTok Studio » ouvre l'appli web installée depuis Chrome / Edge (raccourci du menu
+    Démarrer, `studio-apps.js`, `--app-launch-url-for-shortcuts-menu-item` = page d'envoi), sinon le site. Copie
+    « titre + hashtags », « Titre » ou « Hashtags » ; titre proposé pour les vieux clips sans fiche.
+  - Tuto v6 : toutes ces nouveautés.

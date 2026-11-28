@@ -6,12 +6,14 @@ export const EDITOR_TOUR = [
     text: "Tout ce que Sklip a trouvé dans ton stream : kills, multi-kills, aces, clutchs, raids… Clique « + Ajouter » pour mettre un moment dans ton montage." },
   { target: 'moments', since: 3, title: 'Voir ou retirer un moment',
     text: "Clique sur un moment pour le regarder sans l'ajouter à ton montage. Le ✕ au bout de la ligne le retire de la liste si tu n'en veux pas (« Voir les moments retirés » pour le remettre)." },
-  { target: 'moments', since: 4, title: 'Victoires, défaites et RR',
-    text: "Sklip repère aussi la fin de tes parties : « Victoire » (vert), « Défaite » (rouge) et les points de rang gagnés ou perdus (RR). Ils sont dans la liste, et les victoires vont dans le montage Kills et le Best-of." },
+  { target: 'moments', since: 6, title: 'Victoires, défaites et RR',
+    text: "Sklip repère aussi la fin de tes parties classées : « win » (victoire), « loose » (défaite) et les points de rang gagnés ou perdus (« rr+16 », « rr-25 »). Ces petits clips (2 s) se placent tout seuls dans l'ordre du live, dans les montages Kills et Best-of." },
   { target: 'timeline', title: 'La timeline',
     text: "Ton montage, clip après clip. Glisse un clip pour changer l'ordre, tire ses bords pour le raccourcir ou le rallonger. Touche Suppr pour retirer le clip sélectionné." },
   { target: 'timeline', since: 3, title: 'La barre rouge et les coupes',
     text: "Attrape la barre rouge (ou clique sur la règle du temps) et glisse-la pour revoir un passage ; ⏮ te ramène au début. « ✂ Couper ici » (touche C) coupe le clip en deux à la barre rouge : tu peux ensuite supprimer un morceau (touche Suppr)." },
+  { target: 'passage', since: 6, title: 'Enlever un passage',
+    text: "Tu marches 10 s entre deux kills ? Place la barre rouge au début du passage, clique « ✂ Enlever un passage » (touche X), avance la barre rouge à la fin, puis « ✂ Enlever jusqu'ici ». Le passage part, le clip reste collé. Sous chaque clip, l'heure du stream où il commence. Sur un multi-kill, le bouton « ⏩ Enlever les temps morts » du clip sélectionné le fait tout seul." },
   { target: 'timeline', since: 4, title: 'Le teaser et la molette',
     text: "Le clip violet « ⚡ Teaser » au début : les meilleurs instants en coupes rapides (3 s), pour accrocher. Le clip entier est rejoué plus loin. Fais tourner la molette pour défiler, Ctrl + molette pour zoomer." },
   { target: 'preview', title: "L'aperçu",
@@ -20,6 +22,8 @@ export const EDITOR_TOUR = [
     text: 'Choisis la mise en page en 9:16 (webcam en haut ou jeu seul), le son de ce clip, les sous-titres et les textes à l\'écran.' },
   { target: 'props', since: 3, title: 'Agrandir les panneaux',
     text: "Mets ta souris sur le bord d'un panneau (ici ou celui des moments) : il devient violet. Tire-le pour l'élargir. Sklip garde la largeur pour la prochaine fois." },
+  { target: 'subs-all', since: 6, title: 'Sous-titres sur toute la vidéo',
+    text: "Le bouton « 💬 Sous-titres » en haut met ou enlève les sous-titres sur tout le montage d'un coup." },
   { target: 'subs', since: 3, title: 'Choisir les sous-titres',
     text: "Décoche une ligne de sous-titre pour la cacher (le texte est gardé, tu peux la recocher). « Tout cocher / Tout décocher » pour le clip entier." },
   { target: 'voices', since: 2, title: 'Tes coéquipiers parlent',
@@ -32,6 +36,8 @@ export const EDITOR_TOUR = [
     text: 'Règle le son de tout le montage : jeu, micro, Discord, musique. La musique est coupée par défaut à cause des droits d\'auteur.' },
   { target: 'bgm', since: 5, title: 'Musique libre de droits',
     text: "Coche « 🎶 Musique libre » : Sklip choisit une musique libre de droits selon la durée du montage (plusieurs enchaînées pour un long Best-of). ▶ pour écouter, « 🔀 Changer » pour en prendre d'autres. Ajoute les tiennes dans « Mes musiques »." },
+  { target: 'cleanmic', since: 6, title: 'Sans clavier ni souris',
+    text: "Coche « Sans clavier ni souris » : à l'export, ton micro est coupé entre tes phrases, on n'entend plus ton clavier ni ta souris quand tu ne parles pas. Ta voix n'est pas touchée. Visible si Sklip a enregistré ton micro à part pendant le live." },
   { target: 'format', title: 'Format et durée',
     text: '9:16 pour TikTok, Shorts et Reels, 16:9 pour YouTube. La durée visée se règle par thème dans les Réglages (1 min pour un TikTok, 5 min pour le Best-of).' },
   { target: 'duree', since: 4, title: 'La durée du montage',
@@ -42,10 +48,12 @@ export const EDITOR_TOUR = [
     text: 'Quand ça te plaît, clique « Exporter ». La vidéo arrive dans le dossier de ton stream, prête à poster. À toi de jouer !' },
   { target: 'export', since: 4, title: 'Titre et hashtags',
     text: "Après l'export, Sklip te propose un titre et des hashtags : « Copier titre + hashtags » puis colle-les sur TikTok ou YouTube. Dans les Réglages, tu peux aussi faire exporter tes montages tout seuls à la fin du live." },
+  { target: 'export', since: 6, title: "L'onglet Clips",
+    text: "Tes vidéos exportées t'attendent dans l'onglet « Clips » (colonne de gauche) : ouvre TikTok Studio ou YouTube Studio (l'appli de ton PC si tu l'as installée, sinon le site), glisse la vidéo dans la page d'envoi, copie le titre et les hashtags (ensemble ou séparément), puis coche « Déjà posté »." },
 ];
 
 /** Version du tuto : les étapes `since` plus récentes que ce qu'a vu le streamer lui sont montrées seules. */
-export const TOUR_VERSION = 5;
+export const TOUR_VERSION = 6;
 export function tourSteps(steps, seen) {
   return seen ? steps.filter((s) => (s.since || 1) > seen).map((s) => ({ ...s, title: `Nouveau : ${s.title}` })) : steps;
 }

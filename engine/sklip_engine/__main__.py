@@ -49,6 +49,7 @@ def cmd_render(p):
         texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")), auto_mix=p.get("auto_mix", True),
         music_file=p.get("music_file"), music_start=p.get("music_start", 0.0),
         music_volume=p.get("music_volume", 0.8), music=p.get("music") or [], encoder=p.get("encoder"),
+        mic_speech=p.get("mic_speech"),
     )
     out = render_montage(spec, progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
     if p.get("post"):

@@ -191,3 +191,31 @@ def test_coupe_franche_sans_fondu_au_noir():
     assert not re.search(r"(?<!a)fade=t=in", franc) and "afade=t=in:st=0:d=0.015" in franc
     normal = " ".join(_clip_cmd(spec, RenderClip(10, 15, "game_only"), src, "p.mp4", "libx264"))
     assert "fade=t=in:st=0:d=0.12" in normal and "afade=t=in:st=0:d=0.12" in normal
+
+
+def test_micro_coupe_entre_les_phrases():
+    """Clavier / souris : le micro n'est gardé que pendant les phrases (+ une marge), avec un fondu."""
+    from sklip_engine.render import mic_gate
+    assert mic_gate(None, 100, 10) is None and mic_gate([], 100, 10) is None   # paroles inconnues : on ne coupe rien
+    assert mic_gate([(90, 120)], 100, 10) is None                           # il parle tout le clip
+    assert mic_gate([(50, 60)], 100, 10) == "volume=0"                      # il ne parle pas
+    g = mic_gate([(102, 104), (300, 301)], 100, 10)
+    assert g.count("clip(") == 1 and "1.880" in g and "4.250" in g
+
+
+def test_clavier_retire_a_l_export(tmp_path):
+    """Micro : une voix (500 Hz) de 1 à 3 s, des clics (2 kHz) partout. Avec les phrases connues, plus de clics à 5 s,
+    la voix reste."""
+    video = tmp_path / "v.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8",
+                    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "8", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-c:a", "aac", str(video)], check=True)
+    mic = tmp_path / "mic.wav"
+    expr = "0.3*sin(2*PI*500*t)*between(t,1,3)+0.3*sin(2*PI*2000*t)"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=48000:d=8", "-ac", "2",
+                    str(mic)], check=True)
+    out = tmp_path / "propre.mp4"
+    render_montage(MontageSpec(video=str(video), output=str(out), fmt="16x9", encoder="libx264", auto_mix=False,
+                               tracks={"mic": TrackFile(str(mic))}, clips=[RenderClip(0, 8)], mic_speech=[(1, 3)]))
+    assert _band_db(str(out), 500, 1.5, 1) > -20
+    assert _band_db(str(out), 2000, 5, 1) < _band_db(str(out), 2000, 1.5, 1) - 40

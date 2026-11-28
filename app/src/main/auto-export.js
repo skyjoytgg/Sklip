@@ -22,7 +22,7 @@ function plan(session, { formats = ['9x16'], cam, channel = '', teaser = true, s
       if (teaser && S.wantsTeaser(style)) project = M.setTeaser(project);
       const post = M.suggestPost(project, { streamTitle: es.stream.title, theme, channel });
       const output = path.join(session.folder, 'montages', `sklip_${theme}_${fmt}.mp4`);
-      out.push({ theme, fmt, project, output, post, cam: es.cam, tracks: es.tracks || {} });
+      out.push({ theme, fmt, project, output, post, cam: es.cam, tracks: es.tracks || {}, speech: es.speech || [] });
     }
   }
   return out;
@@ -43,7 +43,7 @@ async function autoExport(session, { engine, formats, cam, channel, teaser, styl
     if (onStep) onStep(i, jobs.length, j);
     try {
       fs.mkdirSync(path.dirname(j.output), { recursive: true });
-      await engine('render', M.toRenderSpec(j.project, { video: session.video, output: j.output, cam: j.cam, tracks: j.tracks, post: j.post, musicTracks: music }));
+      await engine('render', M.toRenderSpec(j.project, { video: session.video, output: j.output, cam: j.cam, tracks: j.tracks, post: j.post, musicTracks: music, speech: j.speech }));
       done.push(j);
     } catch (e) {
       if (log) log.warn(`Export automatique ${j.theme} ${j.fmt} :`, e);

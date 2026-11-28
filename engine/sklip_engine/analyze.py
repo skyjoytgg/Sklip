@@ -71,6 +71,24 @@ def _endgames(video: str, cache: str, duration: float, partial_scans) -> list[di
     return endgames
 
 
+def _rescue_endgames(video: str, cache: str, hud, rounds, endgames: list[dict]) -> list[dict]:
+    """Bannières VICTOIRE / DÉFAITE trop courtes pour la passe rapide : relues à chaque fin de partie. Gardé en cache."""
+    rescue_file = os.path.join(cache, "endgame-rescue.json")
+    try:
+        if os.path.exists(rescue_file):
+            with open(rescue_file, encoding="utf-8") as f:
+                extra = json.load(f)
+        else:
+            from .endgame import last_scores, rescue_in_video
+            extra = rescue_in_video(video, last_scores(hud.t, hud.scores, rounds), endgames)
+            with open(rescue_file, "w", encoding="utf-8") as f:
+                json.dump(extra, f, ensure_ascii=False)
+    except Exception:
+        return endgames
+    from .endgame import merge_endgames
+    return merge_endgames(endgames + extra)
+
+
 def analyze_stream(video: str, root: str, title: str, themes: list[str] | None = None, target: float | dict = 30.0,
                    extra_moments: list[dict] | None = None, extra_stats: dict | None = None,
                    folder: str | None = None, day: str | None = None, scan: Scan | None = None,
@@ -182,6 +200,7 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     kill_times = [round(e.t, 2) for e in events if not e.spectating]
     deaths = [round(d, 2) for d in find_deaths(scan)]
     rounds = rounds_from_scores(hud.t, hud.scores)
+    endgames = _rescue_endgames(video, cache, hud, rounds, endgames)
     report(0.965, "Recherche des kills au couteau")
     from .killfeed import knife_kills
     knives = knife_kills(video, events)

@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('sklip', {
   showClip: (file) => ipcRenderer.invoke('clips:show', file),
   openClip: (file) => ipcRenderer.invoke('clips:open', file),
   openUploadSite: (which) => ipcRenderer.invoke('clips:site', which),
+  studioApps: () => ipcRenderer.invoke('clips:apps'),
   dragClip: (file) => ipcRenderer.send('clips:drag', file),
   listMusic: () => ipcRenderer.invoke('music:list'),
   openMusicFolder: () => ipcRenderer.invoke('music:openFolder'),

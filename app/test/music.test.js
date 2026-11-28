@@ -60,3 +60,16 @@ test('dossier « Mes musiques » : créé avec une note, fichiers audio trouvés
   assert.deepStrictEqual(music.audioFiles(dir).map((f) => path.basename(f)).sort(), ['a.mp3', 'b.ogg']);
   assert.deepStrictEqual(music.audioFiles(path.join(root, 'absent')), []);
 });
+
+test('sans clavier ni souris : phrases envoyées seulement avec une piste micro et des phrases connues', () => {
+  const off = M.createProject({ clips: [{ start: 0, end: 30 }] });
+  assert.strictEqual(off.cleanMic, false);                     // à cocher, pas par défaut (Sky 27/11)
+  assert.strictEqual(M.toRenderSpec(off, { tracks: { mic: {} }, speech: [[1, 3]] }).mic_speech, null);
+  const p = { ...off, cleanMic: true };
+  const speech = [[1, 3]];
+  const mic = { mic: { path: 'mic.ogg', offset: 0 } };
+  assert.deepStrictEqual(M.toRenderSpec(p, { tracks: mic, speech }).mic_speech, speech);
+  assert.strictEqual(M.toRenderSpec(p, { tracks: {}, speech }).mic_speech, null);
+  assert.strictEqual(M.toRenderSpec(p, { tracks: mic, speech: [] }).mic_speech, null);
+  assert.strictEqual(M.toRenderSpec({ ...p, cleanMic: false }, { tracks: mic, speech }).mic_speech, null);
+});

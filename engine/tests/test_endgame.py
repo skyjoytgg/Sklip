@@ -60,3 +60,27 @@ def test_fusion_des_lectures_pendant_le_live():
     b = [{"type": "defeat", "t": 1426.0, "meta": {}}, {"type": "rr", "t": 1450.0, "meta": {"rr": -20}},
          {"type": "victory", "t": 7627.0, "meta": {}}]
     assert [(e["type"], e["t"]) for e in eg.merge_endgames(a + b)] == [("defeat", 1424.0), ("rr", 1450.0), ("victory", 7627.0)]
+
+
+def test_banniere_entre_deux_images_cles_rattrapee():
+    """Live du 28/11 : « 7 DÉFAITE 13 » à 4:20:15 n'est restée que 3 s, entre deux images clés."""
+    from types import SimpleNamespace as R
+    red, dark = _img((60, 70, 255), 0.6), _img()
+    read = lambda img: [{"text": "7 DÉFAITE 13"}] if img.mean() > 20 else []
+    rounds = [R(game=0, start=10.0), R(game=0, start=60.0), R(game=1, start=200.0), R(game=1, start=15483.0)]
+    hud_t = [50.0, 90.0, 95.0, 300.0, 15600.0, 15610.0, 15650.0]
+    scores = [(1, 2), (2, 2), (None, None), (0, 1), (7, 12), (7, 12), (None, None)]
+    ends = eg.last_scores(hud_t, scores, rounds)
+    assert ends == [90.0, 15610.0]
+    asked = []
+
+    def frames(t0, t1):
+        asked.append((t0, t1))
+        for k in range(int((t1 - t0) * 2)):
+            t = t0 + k / 2
+            yield t, red if 15615 <= t <= 15617.5 else dark
+
+    already = [{"type": "victory", "t": 96.0, "meta": {}}]          # partie 1 : déjà trouvée par la passe rapide
+    out = eg.rescue_endgames(ends, already, frames, read=read)
+    assert asked == [(15608.0, 15640.0)]
+    assert out == [{"type": "defeat", "t": 15615.0, "meta": {"score": "7-13"}}]

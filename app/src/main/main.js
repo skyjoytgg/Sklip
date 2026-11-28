@@ -12,6 +12,7 @@ const perf = require('./perf');
 const { Logger } = require('./logger');
 const pipeline = require('./pipeline');
 const clipsLib = require('./clips');
+const studioApps = require('./studio-apps');
 const musicLib = require('./music');
 const { autoExport } = require('./auto-export');
 const style = require('../renderer/style-model');
@@ -548,9 +549,32 @@ app.whenReady().then(() => {
   ipcMain.handle('clips:posted', (_e, file, posted) => clipInLibrary(file) && clipsLib.setPosted(file, !!posted));
   ipcMain.handle('clips:show', (_e, file) => { if (clipInLibrary(file)) shell.showItemInFolder(file); });
   ipcMain.handle('clips:open', (_e, file) => (clipInLibrary(file) ? shell.openPath(file) : null));
+  // TikTok Studio / YouTube Studio : l'appli installée sur le PC (Chrome / Edge) si elle existe, sinon le site.
+  const studioApp = (which) => {
+    if (process.platform !== 'win32') return null;
+    const dirs = [path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+      path.join(process.env.ProgramData || 'C:/ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs')];
+    const lnk = studioApps.pickShortcut(studioApps.startMenuLinks(dirs), which);
+    if (!lnk) return null;
+    try {
+      const l = shell.readShortcutLink(lnk);
+      return studioApps.launchCommand({ target: l.target, args: l.args }, studioApps.SITES[which].url);
+    } catch { return null; }
+  };
+  ipcMain.handle('clips:apps', () => ({ tiktok: !!studioApp('tiktok'), youtube: !!studioApp('youtube') }));
   ipcMain.handle('clips:site', (_e, which) => {
-    const url = { tiktok: 'https://www.tiktok.com/tiktokstudio/upload', youtube: 'https://studio.youtube.com' }[which];
-    if (url) shell.openExternal(url);
+    const site = studioApps.SITES[which];
+    if (!site) return null;
+    const cmd = studioApp(which);
+    if (cmd) {
+      try {
+        require('node:child_process').spawn(cmd.file, cmd.args, { detached: true, stdio: 'ignore' }).unref();
+        log.info(`Clips : appli ${which} ouverte`);
+        return 'app';
+      } catch (e) { log.warn(`Clips : appli ${which} pas ouverte (${e.message}), site à la place`); }
+    }
+    shell.openExternal(site.url);
+    return 'web';
   });
   // Glisser une vidéo de Sklip vers la page d'envoi de TikTok / YouTube (le navigateur reçoit le vrai fichier).
   ipcMain.on('clips:drag', (e, file) => {

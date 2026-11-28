@@ -454,3 +454,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .bgm-list { display: flex; flex-direction: column; max-height: 44px; overflow-y: auto; }
 .bgm-list .link, .bgm > .link { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .bgm input[type=range] { flex: 1; min-width: 0; }
+/* Enlever un passage (Sky 28/11) + heure du clip dans le stream */
+.tl-label .tl-time { font-size: 10px; color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; }
+.tl-mark { position: absolute; top: -3px; bottom: -3px; background: rgba(255,79,94,.28); border: 1px dashed #ff4f5e; border-radius: 4px; pointer-events: none; z-index: 3; }
+.mark-note { color: #ff8a94; }

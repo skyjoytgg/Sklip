@@ -50,7 +50,7 @@ const mock = (() => {
         post: { title: 'Best-of du live : VICTOIRE 13-11 🏆 (+16 RR)', hashtags: ['#valorant', '#ranked'] } },
     ],
     clipPosted: async () => true,
-    showClip: noop, openClip: noop, openUploadSite: noop, dragClip: noop,
+    showClip: noop, openClip: noop, openUploadSite: noop, studioApps: async () => ({ tiktok: true, youtube: false }), dragClip: noop,
     listMusic: async () => [
       { file: 'C:/demo/Night Drive.mp3', title: 'Night Drive', artist: 'Pack Sklip', duration: 152 },
       { file: 'C:/demo/Neon Tears.mp3', title: 'Neon Tears', artist: 'Pack Sklip', duration: 128 },

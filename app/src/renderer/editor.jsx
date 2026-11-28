@@ -263,6 +263,7 @@ ${post.hashtags.join(' ')}`;
 function Timeline({ project, setProject, selected, setSelected, player, speech }) {
   const [pps, setPps] = useState(28);        // pixels par seconde (zoom)
   const [drag, setDrag] = useState(null);    // { id, x0, dx, insert } | { trim, id, edge, x0, snap }
+  const [mark, setMark] = useState(null);    // « Enlever un passage » : { id, t } = début marqué (temps du stream)
   const offsets = M.clipOffsets(project);
   const total = M.totalDuration(project);
   const ref = useRef(null);
@@ -324,6 +325,24 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   const cutAt = under ? under.start + player.local : null;
   const canCut = under && cutAt - under.start >= 1 && under.end - cutAt >= 1;
   const cut = () => { if (canCut) { setProject(M.splitClip(project, under.id, cutAt)); setSelected(null); } };
+  // Enlever un passage (Sky 28/11) : 1er clic = début du passage à la barre rouge, 2e clic = fin, le passage part.
+  const markClip = mark && project.clips.find((c) => c.id === mark.id);
+  useEffect(() => { if (mark && !markClip) setMark(null); }, [mark, markClip]);
+  const canEnd = markClip && under && under.id === mark.id && Math.abs(cutAt - mark.t) >= 0.3;
+  const passage = () => {
+    if (!markClip) { if (under) setMark({ id: under.id, t: cutAt }); return; }
+    if (!canEnd) return;
+    const i = project.clips.findIndex((c) => c.id === mark.id);
+    const next = M.cutPassage(project, mark.id, mark.t, cutAt);
+    setProject(next); setMark(null); setSelected(null);
+    if (next !== project) player.setT(M.clipOffsets(next)[i] + Math.max(0, Math.min(mark.t, cutAt) - markClip.start));
+  };
+  const markZone = markClip ? (() => {
+    const i = project.clips.indexOf(markClip);
+    const b = under && under.id === mark.id ? cutAt : mark.t;
+    const x = (t) => (offsets[i] + t - markClip.start) * pps;
+    return { left: x(Math.min(mark.t, b)), width: Math.max(2, Math.abs(x(b) - x(mark.t))) };
+  })() : null;
   // Après un zoom à la molette, garde sous la souris l'instant qui y était.
   const anchor = useRef(null);
   useLayoutEffect(() => {
@@ -356,6 +375,8 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
     const onKey = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
       if (e.key === 'c' || e.key === 'C') cut();
+      if (e.key === 'x' || e.key === 'X') passage();
+      if (e.key === 'Escape') setMark(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -371,10 +392,15 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
   return (
     <div className="timeline-wrap" data-tour="timeline">
       <div className="tl-tools">
-        <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner · glisse la barre rouge pour revoir · molette pour défiler (Ctrl + molette : zoom)</span>
+        {markClip ? <span className="note mark-note">Début du passage marqué à {M.fmtTime(mark.t)} : avance la barre rouge à la fin du passage, puis « ✂ Enlever jusqu'ici » (touche X).</span> : <span className="note">Glisse un clip pour le déplacer · tire ses bords pour le rogner · glisse la barre rouge pour revoir · molette pour défiler (Ctrl + molette : zoom)</span>}
         <div className="row">
           <button className="btn ghost sm" disabled={!canCut} onClick={cut}
             title={canCut ? 'Coupe le clip en deux à la barre rouge (touche C)' : "Place la barre rouge dans un clip (à plus d'1 s des bords)"}>✂ Couper ici</button>
+          <button className={'btn sm ' + (markClip ? '' : 'ghost')} data-tour="passage" disabled={markClip ? !canEnd : !under} onClick={passage}
+            title={markClip ? 'Avance la barre rouge à la fin du passage à enlever, puis clique (touche X)'
+              : 'Place la barre rouge au début du passage à enlever (ex. quand tu marches entre deux kills), puis clique (touche X)'}>
+            {markClip ? "✂ Enlever jusqu'ici" : '✂ Enlever un passage'}</button>
+          {markClip && <button className="btn ghost sm" onClick={() => setMark(null)} title="Échap">Annuler</button>}
           <span className="note">Zoom</span>
           <input type="range" min="8" max="80" value={pps} onChange={(e) => setPps(Number(e.target.value))} />
         </div>
@@ -402,6 +428,7 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
                   <div className="tl-label">
                     <b>{c.teaser ? '⚡ Teaser' : mm ? momentLabel(mm) : 'Clip'}{M.hasLiveMusic(project, c) && <span title="Musique du live gardée"> 🎵</span>}</b>
                     <span>{(c.end - c.start).toFixed(1)} s</span>
+                    <span className="tl-time" title="Moment du stream où commence ce clip">{c.joined ? '✂ ' : ''}{M.fmtTime(c.start)}</span>
                   </div>
                   <div className={'h r' + (cut.end ? ' cuts' : '')} title={cut.end ? 'Coupe une phrase' : undefined}
                     onPointerDown={(e) => onTrimDown(e, c, 'end')} />
@@ -409,6 +436,7 @@ function Timeline({ project, setProject, selected, setSelected, player, speech }
               );
             })}
             {insertX != null && <div className="insert" style={{ left: insertX }} />}
+            {markZone && <div className="tl-mark" style={markZone} title="Passage qui sera enlevé" />}
           </div>
           <div className="playhead" style={{ left: player.t * pps }}>
             <div className="ph-knob" title="Glisse pour revoir un passage" onPointerDown={onScrubDown} />
@@ -691,7 +719,7 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
         }
       }
       const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
-        camManual: ['manual', 'project'].includes(camSource), stickers, musicTracks: musicTracks || [] });
+        camManual: ['manual', 'project'].includes(camSource), stickers, musicTracks: musicTracks || [], speech: session.speech });
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output, post });
     } catch (e) {
@@ -853,6 +881,17 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
                 Dans le stream : {M.fmtTime(clip.start)} → {M.fmtTime(clip.end)} ({(clip.end - clip.start).toFixed(1)} s)
               </div>
               <ClipBounds project={project} setProject={setProject} clip={clip} speech={session.speech} />
+              {(() => {
+                const dead = M.deadTimes(clip, session.speech);
+                if (!dead.length) return null;
+                const sec = dead.reduce((t, [a, b]) => t + b - a, 0);
+                return (
+                  <button className="btn sm" style={{ margin: '4px 0 12px' }} data-tour="deadtimes"
+                    title={'Enlève les passages sans action entre les kills (on garde 2,5 s après un kill et 3 s avant le suivant) : '
+                      + dead.map(([a, b]) => `${M.fmtTime(a)} → ${M.fmtTime(b)}`).join(', ')}
+                    onClick={() => { setProject(M.removeDeadTimes(project, clip.id, session.speech)); setSelected(null); }}>
+                    ⏩ Enlever les temps morts entre les kills ({Math.round(sec)} s)</button>);
+              })()}
               {project.fmt === '9x16' && (
                 <>
                   <div className="lbl">Mise en page 9:16</div>
@@ -1007,6 +1046,10 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
           <label className="check" title="Chaque son est remis à niveau, la musique baisse quand tu parles, et le volume final suit TikTok / YouTube.">
             <input type="checkbox" checked={project.autoMix !== false} onChange={(e) => setProject({ ...project, autoMix: e.target.checked })} />
             <b>Mixage auto</b></label>
+          {session.tracks && session.tracks.mic && (
+            <label className="check" data-tour="cleanmic" title="Le micro est coupé entre tes phrases : on n'entend plus le clavier ni la souris. Ta voix n'est pas touchée.">
+              <input type="checkbox" checked={project.cleanMic === true} onChange={(e) => setProject({ ...project, cleanMic: e.target.checked })} />
+              <b>Sans clavier ni souris</b></label>)}
           <div className="note">{project.autoMix !== false
             ? 'Ta voix reste devant : le jeu et la musique sont remis à niveau et baissent quand tu parles. 100 % = niveau idéal.'
             : "Volumes bruts : chaque piste garde son volume d'origine."}
