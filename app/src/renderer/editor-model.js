@@ -50,6 +50,7 @@ function makeClip(c) {
     chat: c.chat || [],          // bulles du chat : [{ t, user, text, color, badges, start, end, auto }] (temps du stream)
     gameChat: c.gameChat || null, // messages du chat du jeu lus dans l'image : null = pas encore lus ; [{ t, user, text, team }]
     teaser: c.teaser || false,    // morceau du teaser du début (les meilleurs instants en coupes rapides)
+    part: c.part || null,         // vidéo YouTube : « game:3 » (partie n° 3) ou « talk » (Just Chatting)
   };
 }
 
@@ -108,6 +109,48 @@ function setBgm(p, patch) {
 }
 
 const totalDuration = (p) => p.clips.reduce((s, c) => s + (c.end - c.start), 0);
+
+// ── Vidéo YouTube (Sky 26/11 et 28/11) ──────────────────────────────────────────────────────────────────────
+// Deux thèmes : « youtube » (best-of du live, 8–15 min) et « youtube_partie » (la meilleure partie, round par
+// round). 16:9, sans teaser, sous-titres coupés, coupes sèches. Elle s'ouvre sur le Just Chatting du début et
+// finit par celui de la fin. À l'export, le moteur met un écran « PARTIE 2 » seulement quand on change de partie,
+// grossit la webcam quand le streamer réagit (option), ajoute 15 s « Abonne-toi / rejoins-moi sur Twitch » (la
+// place des écrans de fin YouTube), et écrit la description avec chapitres + une miniature avec sa tête.
+const LONG_THEMES = ['youtube', 'youtube_partie'];
+const YT_CARD = 1.2;              // comme le moteur (youtube.CARD_DUR)
+const YT_OUTRO = 15;              // youtube.OUTRO_DUR
+const isLongTheme = (theme) => LONG_THEMES.includes(theme);
+const TALK_TYPES = ['laugh', 'scream', 'chat_spike', 'raid', 'viewer_peak', 'viewer_clip', 'marker'];
+
+function asYoutube(p, theme = 'youtube') {
+  return { ...p, youtube: true, ytTheme: isLongTheme(theme) ? theme : 'youtube', fmt: '16x9', teaserOff: true,
+    camZoom: p.camZoom !== false, clips: p.clips.filter((c) => !c.teaser), texts: { ...p.texts, subtitles: false } };
+}
+
+/** Partie de chaque clip (« game:3 », « talk ») ; un clip sans info prend celle d'avant (comme youtube.parts). */
+function clipParts(clips) {
+  let prev = null;
+  return clips.map((c) => {
+    const ms = c.moments || [];
+    const g = ms.find((m) => m.meta && m.meta.game != null);
+    const own = c.part || (g ? `game:${g.meta.game}` : ms.every((m) => TALK_TYPES.includes(m.type)) ? 'talk' : null);
+    prev = own || prev;
+    return prev;
+  });
+}
+
+/** Écran de transition avant le clip i : seulement quand on change de partie (youtube.has_card). */
+function ytCards(p) {
+  if (!p.youtube) return p.clips.map(() => false);
+  const ps = clipParts(p.clips);
+  return ps.map((x, i) => i > 0 && !!x && !!ps[i - 1] && x !== ps[i - 1]);
+}
+
+/** Durée de la vidéo exportée : les clips, plus les écrans de transition et la fin d'une vidéo YouTube. */
+const exportDuration = (p) => totalDuration(p)
+  + (p.youtube && p.clips.length ? YT_CARD * ytCards(p).filter(Boolean).length + YT_OUTRO : 0);
+
+const setCamZoom = (p, on) => ({ ...p, camZoom: !!on });
 
 /** Position de début de chaque clip dans le montage final. */
 function clipOffsets(p) {
@@ -434,7 +477,16 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   const best = all.reduce((a, m) => (!a || (m.meta?.count || 1) > (a.meta?.count || 1) ? m : a), null);
   let title;
   const rr = has('rr') && has('rr').meta?.rr;
-  if (theme === 'bestof') title = has('ace') ? 'Le best-of du live (avec un ACE) 🔥' : 'Le best-of du live 🔥';
+  if (theme === 'youtube') {
+    const min = Math.max(1, Math.round(exportDuration(p) / 60));
+    title = `Mon live en ${min} minutes${has('ace') ? ' (avec un ACE)' : ''} 🔥`;
+  }
+  else if (theme === 'youtube_partie') {
+    const v = has('victory');
+    title = has('ace') ? 'La partie où je mets un ACE 🔥'
+      : v ? `La partie la plus folle de mon live${v.meta?.score ? ` (${v.meta.score})` : ''} 🔥` : 'La partie la plus folle de mon live 🔥';
+  }
+  else if (theme === 'bestof') title = has('ace') ? 'Le best-of du live (avec un ACE) 🔥' : 'Le best-of du live 🔥';
   else if (all.some((m) => m.meta?.knives?.length)) title = 'Kill au couteau 🔪';
   else if (has('ace')) title = 'ACE 🔥';
   else if (has('clutch')) title = `Clutch ${has('clutch').meta?.vs ? `1v${has('clutch').meta.vs}` : ''} 🧠`.replace('  ', ' ');
@@ -447,6 +499,8 @@ function suggestPost(p, { streamTitle = '', theme = 'kills', channel = '' } = {}
   else title = 'Les meilleurs kills du stream 🎯';
   const tags = ['#valorant', '#valorantclips', '#twitch', '#gaming'];
   if (p.fmt === '9x16') tags.push('#shorts', '#fyp');
+  if (theme === 'youtube') tags.push('#bestof', '#twitchfr');
+  if (theme === 'youtube_partie') tags.push('#ranked', '#twitchfr');
   if (all.some((m) => m.meta?.knives?.length)) tags.push('#knife');
   if (theme === 'drole') tags.push('#funny');
   if (has('rr') || has('victory')) tags.push('#ranked');
@@ -631,7 +685,7 @@ function carryChoices(p, previous) {
   if (previous.texts) out.texts = { ...p.texts, ...previous.texts };
   if (previous.volumes) out.volumes = { ...p.volumes, ...previous.volumes };
   if (previous.fmt) out.fmt = previous.fmt;
-  if (previous.teaserOff && hasTeaser(out)) return setTeaser(out, false);
+  if ((previous.teaserOff || out.youtube) && hasTeaser(out)) return setTeaser(out, false);
   return out;
 }
 
@@ -781,8 +835,9 @@ function clipCam(c, cam, camManual = false) {
   return c.layout === 'cam_full' || !camManual ? c.cam : cam;
 }
 
-function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {}, musicTracks = [], speech = null }) {
-  const bgm = p.bgm && p.bgm.on ? planMusic(musicTracks, totalDuration(p), p.bgm.seed) : [];
+function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, post, camManual = false, stickers = {}, musicTracks = [], speech = null, channel = null, faces = null }) {
+  const bgm = p.bgm && p.bgm.on ? planMusic(musicTracks, exportDuration(p), p.bgm.seed) : [];
+  const parts = p.youtube ? clipParts(p.clips) : [];
   return {
     post: post || null,
     auto_mix: p.autoMix !== false,
@@ -798,12 +853,16 @@ function toRenderSpec(p, { video, output, cam, tracks, musicFile, musicStart, po
     // Clavier / souris : le micro est coupé entre les phrases (seulement si on sait quand le streamer parle).
     mic_speech: p.cleanMic === true && tracks && tracks.mic && speech && speech.length ? speech : null,
     music_volume: bgm.length ? (p.bgm.volume ?? 1) : 0.8,
-    clips: p.clips.map((c) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
+    cards: !!p.youtube, outro: !!p.youtube, youtube: !!p.youtube,
+    ...(p.youtube ? { theme: p.ytTheme || 'youtube', cam_zoom: p.camZoom !== false, outro_channel: channel || null,
+      faces: faces || null } : {}),
+    clips: p.clips.map((c, i) => ({ start: c.start, end: c.end, layout: c.layout, volumes: c.volumes,
       cam: c.cam && cam ? clipCam(c, cam, camManual) : undefined,
       focus: c.layout === 'cam_full' && c.focus ? c.focus : undefined,
       moments: c.moments, words: p.texts.subtitles ? clipWordsForRender(c) : undefined, friend: friendForRender(c),
       stickers: stickers[c.id] && stickers[c.id].length ? stickers[c.id] : undefined,
-      fade: c.teaser ? 0 : undefined })),                     // teaser : coupes franches, sans fondu au noir
+      part: parts[i] || undefined,
+      fade: c.teaser || p.youtube ? 0 : undefined })),        // teaser, YouTube : coupes franches, sans fondu au noir
   };
 }
 
@@ -819,6 +878,7 @@ module.exports = {
   TRACKS, TRACK_LABELS, DEFAULT_VOLUMES, LAYOUTS, MIN_CLIP,
   clipCam, blurryFull, createProject, totalDuration, clipOffsets, moveClip, trimClip, addMoment, peekProject, removeClip, updateClip,
   snapToSpeech, fitToSentences, cutsSentence, reactionStatusText,
+  LONG_THEMES, YT_CARD, YT_OUTRO, isLongTheme, asYoutube, exportDuration, clipParts, ytCards, setCamZoom,
   momentWindow, splitClip, cutPassage, deadTimes, removeDeadTimes, teaserCuts, setTeaser, hasTeaser, TEASER_MAX, isMomentUsed, isMomentHidden, hideMoment, setGlobalVolume, setClipVolume, effectiveVolume, hasLiveMusic, setLiveMusic, toRenderSpec, suggestPost,
   REACTION_MODES, PIP_POSITIONS, CUT_DURATIONS, attachReactions, setFriend, friendAt,
   chatNear, gameChatNear, gameChatFromSession, carryChoices, GAME_CHAT_COLORS, chatReadTime, isChatShown, toggleChat, moveChat, chatAt, chatPlacement, chatWidth,

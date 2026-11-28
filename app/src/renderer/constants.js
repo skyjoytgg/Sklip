@@ -5,6 +5,8 @@ export const THEMES = [
   { id: 'communaute', label: 'Moments communauté' },
   { id: 'discussion', label: 'Discussion (Just Chatting)' },
   { id: 'bestof', label: 'Best-of du live (1 min ou plus)' },
+  { id: 'youtube', label: 'Vidéo YouTube (8–15 min)' },
+  { id: 'youtube_partie', label: 'Vidéo YouTube : une partie' },
 ];
 
 export const MODES = {

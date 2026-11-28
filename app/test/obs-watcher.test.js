@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { ObsWatcher, computeAuth, isRequestAllowed } = require('../src/main/obs-watcher');
 
 // Faux OBS : enregistre ce que Sklip envoie et répond comme obs-websocket v5.
-function makeFakeObs({ auth = null, streaming = false, recording = false } = {}) {
+function makeFakeObs({ auth = null, streaming = false, recording = false, recordMs = 0 } = {}) {
   const sent = [];
   class FakeWS {
     constructor() {
@@ -19,7 +19,7 @@ function makeFakeObs({ auth = null, streaming = false, recording = false } = {})
       if (msg.op === 6) {
         const { requestType, requestId } = msg.d;
         const data = requestType === 'GetStreamStatus' ? { outputActive: streaming }
-          : requestType === 'GetRecordStatus' ? { outputActive: recording } : {};
+          : requestType === 'GetRecordStatus' ? { outputActive: recording, outputDuration: recordMs } : {};
         setImmediate(() => this.serverSend(7, { requestType, requestId, requestStatus: { result: true, code: 100 }, responseData: data }));
       }
     }
@@ -47,6 +47,27 @@ test('liste blanche : aucune requête de modification n\'est autorisée', () => 
   assert.strictEqual(isRequestAllowed('GetRecordStatus'), true);
   assert.strictEqual(isRequestAllowed('StartRecord'), false);
   assert.strictEqual(isRequestAllowed('StartRecord', { allowRecordControl: true }), true);
+});
+
+test('Sklip ouvert pendant l\'enregistrement : pris en route, sans rien changer dans OBS', async () => {
+  const { FakeWS, sent } = makeFakeObs({ recording: true, recordMs: 25 * 60 * 1000 });
+  const w = new ObsWatcher({ WebSocketImpl: FakeWS });
+  const got = [];
+  w.on('recordStarted', (e) => got.push(e));
+  const before = Date.now();
+  w.connect();
+  await tick();
+  assert.strictEqual(got.length, 1);
+  assert.ok(got[0].late && Math.abs(got[0].at - (before - 25 * 60 * 1000)) < 1000);   // l'heure du vrai début
+  assert.ok(sent.filter((m) => m.op === 6).every((m) => m.d.requestType.startsWith('Get')));
+  // Pas d'enregistrement en cours : rien n'est pris en route.
+  const idle = makeFakeObs();
+  const w2 = new ObsWatcher({ WebSocketImpl: idle.FakeWS });
+  let n = 0;
+  w2.on('recordStarted', () => { n += 1; });
+  w2.connect();
+  await tick();
+  assert.strictEqual(n, 0);
 });
 
 test('une requête interdite n\'est jamais envoyée à OBS', async () => {

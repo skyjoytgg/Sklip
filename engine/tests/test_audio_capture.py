@@ -58,3 +58,16 @@ def test_capture_d_un_seul_logiciel(tmp_path):
     assert spec[(f > 990) & (f < 1010)].sum() / spec.sum() > 0.5
     assert np.abs(o).max() < 0.01
     assert abs(len(p) - len(o)) < 800
+
+
+def test_calage_d_une_piste_captee_en_retard(tmp_path):
+    """Sklip ouvert 200 s après le début de l'enregistrement : le calage cherche au bon endroit."""
+    import subprocess
+
+    from sklip_engine.audio_sync import sync_track
+    video, track = tmp_path / "v.wav", tmp_path / "t.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=330:c=pink:r=16000:seed=7",
+                    str(video)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "200.4", "-i", str(video), str(track)], check=True)
+    r = sync_track(str(video), str(track), guess=201.0)            # horloges : à une seconde près
+    assert abs(r["offset"] - 200.4) < 0.05 and r["confidence"] >= 0.3

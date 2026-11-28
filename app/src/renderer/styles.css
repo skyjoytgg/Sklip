@@ -458,3 +458,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .tl-label .tl-time { font-size: 10px; color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; }
 .tl-mark { position: absolute; top: -3px; bottom: -3px; background: rgba(255,79,94,.28); border: 1px dashed #ff4f5e; border-radius: 4px; pointer-events: none; z-index: 3; }
 .mark-note { color: #ff8a94; }
+/* Onglet Clips : miniature et description de la vidéo YouTube */
+.cc-yt { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.cc-yt img { width: 128px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); cursor: grab; }

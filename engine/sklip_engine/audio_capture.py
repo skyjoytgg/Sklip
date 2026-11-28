@@ -376,7 +376,8 @@ def tracks_for_video(info: dict, record_started_at: float, video: str | None = N
 
     Décalage de départ : l'heure de début de la capture moins l'heure de début de l'enregistrement OBS.
     Si la vidéo est donnée, on l'affine en comparant le son du jeu (aussi présent dans la vidéo).
-    Les pistes jamais ouvertes (logiciel absent tout le live) sont ignorées.
+    Les pistes jamais ouvertes (logiciel absent tout le live) sont ignorées. Sklip ouvert après le début de
+    l'enregistrement : le décalage est grand (la piste commence plus tard), le rendu met du silence avant.
     """
     offset = round(float(info["started_at"]) - float(record_started_at), 4)
     found = {n: t for n, t in info["tracks"].items() if t.get("source") and os.path.exists(t["path"])}
@@ -384,7 +385,8 @@ def tracks_for_video(info: dict, record_started_at: float, video: str | None = N
     if video and ref:
         from .audio_sync import sync_track
         try:
-            r = (sync or sync_track)(video, found[ref]["path"])
+            # Sklip ouvert pendant l'enregistrement : la piste commence bien après la vidéo, on cherche là.
+            r = sync(video, found[ref]["path"]) if sync else sync_track(video, found[ref]["path"], guess=offset)
             if r["confidence"] >= 0.3 and abs(r["offset"] - offset) < 10:
                 offset = r["offset"]          # même horloge pour toutes les pistes : un seul décalage
         except Exception:

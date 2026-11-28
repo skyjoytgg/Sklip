@@ -14,6 +14,7 @@ const pipeline = require('./pipeline');
 const clipsLib = require('./clips');
 const studioApps = require('./studio-apps');
 const musicLib = require('./music');
+const facesLib = require('./faces');
 const { autoExport } = require('./auto-export');
 const style = require('../renderer/style-model');
 const { StyleStore } = require('./style-store');
@@ -203,6 +204,7 @@ function runAutoExport(session) {
     engine, formats: s.formats, bgm: s.music, musicTracks: () => listMusic().catch(() => []), cam: s.cam, teaser: s.teaser !== false, log,
     style: s.learnStyle !== false ? style.profile(styleStore().all()) : null,
     channel: twitch && twitch.isConnected() ? twitch.tokens.user.login : '',
+    faces: facesLib.dir(libraryRoot()),
     onStep: (i, n, j) => send('analysis:state', { running: true, video: session.video, title: `Export ${i + 1}/${n} : ${j.theme} ${j.fmt.replace('x', ':')}`, startedAt: Date.now(), fraction: i / n }),
   }).then((done) => {
     send('analysis:state', { running: false });
@@ -447,9 +449,16 @@ function startObs() {
   obs.on('streamStarted', () => send('obs:event', { type: 'streamStarted' }));
   obs.on('streamStopped', () => send('obs:event', { type: 'streamStopped' }));
   obs.on('recordStarted', (e) => {
+    // OBS reconnecté pendant un enregistrement déjà suivi : rien ne change (capture, marqueurs, journal continuent).
+    if (e.late && obsTimes.recordStartedAt && !obsTimes.recordStoppedAt && Math.abs(e.at - obsTimes.recordStartedAt) < 15000) return;
     obsTimes = { recordStartedAt: e.at, recordStoppedAt: null };
     markers = [];
     if (journal) journal.start(e.at);
+    if (e.late) {
+      const min = Math.round(e.since / 60000);
+      jadd('record', 'Enregistrement déjà en cours : Sklip le prend en route', { level: 'warn',
+        detail: `commencé il y a ${min < 1 ? "moins d'une minute" : `${min} min`} : pistes audio séparées, F9 et Twitch à partir de maintenant, son de la vidéo avant` });
+    }
     sceneLog = [];
     gameLog = [];
     overlayWarned = new Set();
@@ -578,11 +587,29 @@ app.whenReady().then(() => {
   });
   // Glisser une vidéo de Sklip vers la page d'envoi de TikTok / YouTube (le navigateur reçoit le vrai fichier).
   ipcMain.on('clips:drag', (e, file) => {
-    if (!clipInLibrary(file)) return;
+    // La vidéo, ou la miniature de la vidéo YouTube (sklip_youtube_16x9_miniature.jpg) à côté d'elle.
+    const thumb = typeof file === 'string' && /_miniature\.jpg$/i.test(file) && clipInLibrary(file.replace(/_miniature\.jpg$/i, '.mp4'));
+    if (!clipInLibrary(file) && !thumb) return;
     e.sender.startDrag({ file, icon: nativeImage.createFromDataURL(clipsLib.DRAG_ICON) });
   });
   ipcMain.handle('music:list', () => listMusic());
   ipcMain.handle('music:openFolder', () => shell.openPath(musicLib.ensureUserDir(libraryRoot())));
+  // Mes têtes (Sky 28/11) : photos détourées pour les miniatures YouTube ; « Autre tête » refait la miniature.
+  ipcMain.handle('faces:openFolder', () => shell.openPath(facesLib.ensureDir(libraryRoot())));
+  ipcMain.handle('faces:list', () => facesLib.list(libraryRoot()));
+  ipcMain.handle('clips:thumbnail', async (_e, file, index) => {
+    if (!clipInLibrary(file)) return null;
+    const fiche = file.replace(/\.mp4$/i, '.json');
+    const post = JSON.parse(fs.readFileSync(fiche, 'utf8'));
+    if (!post.thumbnail_params) return null;
+    const res = await engine('thumbnail', { ...post.thumbnail_params, faces: facesLib.dir(libraryRoot()),
+      index: Number(index) || 0, output: file.replace(/\.mp4$/i, '_miniature.jpg') });
+    if (res && res.thumbnail) {
+      fs.writeFileSync(fiche, JSON.stringify({ ...post, thumbnail: res.thumbnail, thumbnail_face: res.face,
+        thumbnail_index: Number(index) || 0 }, null, 1));
+    }
+    return res;
+  });
   ipcMain.handle('journal:list', () => journal.list());
   ipcMain.handle('journal:get', (_e, id) => journal.get(id));
   const streamsDir = () => path.join(libraryRoot(), 'Streams');
@@ -638,7 +665,14 @@ app.whenReady().then(() => {
     fs.writeFileSync(file, Buffer.from(m[1], 'base64'));
     return file;
   });
-  ipcMain.handle('session:editor', (_e, folder, theme) => editorFor(folder, theme));
+  ipcMain.handle('session:editor', async (_e, folder, theme) => {
+    // Vidéo YouTube demandée sur un live analysé avant qu'elle existe : Sklip choisit ses clips (sans réanalyse).
+    const f = folder || settings.get().lastSessionFolder;
+    if (['youtube', 'youtube_partie'].includes(theme) && f && fs.existsSync(path.join(f, 'session.json')) && !(loadSession(f).clips || {})[theme]) {
+      try { await engine('retarget', { folder: f, theme, target: 600 }); } catch (e) { log.warn('Vidéo YouTube :', e); }
+    }
+    return editorFor(folder, theme);
+  });
   // Menu « Durée » de l'éditeur (Sky 26/11) : refait les clips du thème pour 30 s / 1 min / 3 min / 5 min.
   // L'ancien montage retouché n'est pas effacé : renommé montage-<thème>.avant-duree.json.
   ipcMain.handle('session:retarget', async (_e, folder, theme, seconds) => {
@@ -654,6 +688,7 @@ app.whenReady().then(() => {
     if (!f || !fs.existsSync(path.join(f, 'session.json'))) return null;
     const es = pipeline.editorSession(loadSession(f), theme, { cam: settings.get().cam });
     es.channel = twitch && twitch.isConnected() ? twitch.tokens.user.login : '';
+    es.facesDir = facesLib.dir(libraryRoot());     // têtes pour la miniature YouTube
     try { es.reactions = JSON.parse(fs.readFileSync(path.join(f, 'reactions.json'), 'utf8')); } catch { es.reactions = []; }
     es.recordStartedAt = loadSession(f).record_started_at || null;
     try { es.project = JSON.parse(fs.readFileSync(path.join(f, `montage-${es.theme}.json`), 'utf8')); } catch { es.project = null; }

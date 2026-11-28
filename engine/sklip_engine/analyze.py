@@ -227,6 +227,10 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
     from .moments import BESTOF_MIN_DURATION, BESTOF_MIN_MOMENTS
     if "bestof" not in themes and duration >= BESTOF_MIN_DURATION and len(moments) >= BESTOF_MIN_MOMENTS:
         themes = themes + ["bestof"]
+    if "youtube" not in themes and duration >= BESTOF_MIN_DURATION and len(moments) >= BESTOF_MIN_MOMENTS:
+        themes = themes + ["youtube"]          # vidéo YouTube 8–15 min (Sky 28/11 : exportée toute seule elle aussi)
+    if "youtube_partie" not in themes and "youtube" in themes and rounds:
+        themes = themes + ["youtube_partie"]   # … et « une partie » racontée round par round (Sky 28/11)
 
     def theme_moments(th):
         # Thème lié à un type de scène (« Discussion ») : seulement les moments de ces passages.
@@ -234,8 +238,13 @@ def analyze_stream(video: str, root: str, title: str, themes: list[str] | None =
         return in_scene(moments, kind, segments, hud_segs) if kind else moments
 
     targets = {th: target_for(target, th) for th in themes}      # durée par thème (Kills 1 min, Best-of 5 min…)
-    clips = {th: [c.to_dict() for c in select_clips(theme_moments(th), th, targets[th], stream_duration=duration, speech=speech)]
-             for th in themes}
+    def pick(th):
+        if THEMES[th].get("long"):                 # vidéo YouTube 8–15 min
+            from .youtube import pick_theme
+            return pick_theme(th, moments, rounds, deaths, segments, hud_segs, duration, speech)
+        return select_clips(theme_moments(th), th, targets[th], stream_duration=duration, speech=speech)
+
+    clips = {th: [c.to_dict() for c in pick(th)] for th in themes}
     # Chat écrit du jeu (alliés / ennemis) : lu maintenant pour tous les clips proposés, l'éditeur n'attend plus.
     game_chat = {"spans": [], "messages": []}
     chat_file = os.path.join(cache, "gamechat.json")
@@ -350,11 +359,12 @@ def retarget(folder: str, theme: str, target: float, progress=None) -> dict:
     video, duration = session["video"], float(session["duration"])
     moments = [Moment(m["type"], float(m["t"]), m.get("score"), m.get("meta", {})) for m in session.get("moments", [])]
     from .segments import assign_layouts, hud_segments, in_scene
-    hud_segs = []
+    hud_segs, rounds = [], []
     hud_file = os.path.join(cache, "hud.npz")
     if os.path.exists(hud_file):
         hud = Hud.load(hud_file)
         hud_segs = hud_segments(hud.t, hud.score_left, duration)
+        rounds = rounds_from_scores(hud.t, hud.scores)
     segs = session.get("segments") or []
     segments = segs if segs and any(sg.get("source") != "hud" for sg in segs) else None   # scènes OBS connues
     kind = THEMES[theme].get("scene")
@@ -362,7 +372,12 @@ def retarget(folder: str, theme: str, target: float, progress=None) -> dict:
     pool = in_scene(moments, kind, segments, hud_segs) if kind else moments
     speech = [tuple(s) for s in session.get("speech") or []]
     report(0.1, "Choix des clips")
-    clips = [c.to_dict() for c in select_clips(pool, theme, float(target), stream_duration=duration, speech=speech)]
+    if THEMES[theme].get("long"):
+        from .youtube import pick_theme
+        chosen = pick_theme(theme, moments, rounds, session.get("deaths") or [], segments, hud_segs, duration, speech)
+    else:
+        chosen = select_clips(pool, theme, float(target), stream_duration=duration, speech=speech)
+    clips = [c.to_dict() for c in chosen]
     assign_layouts(clips, segments, hud_segs, session.get("cam_detected"))
     # Bulles et répliques déjà trouvées (tous thèmes) : reprises si elles tombent dans un nouveau clip.
     old = [c for th in session.get("clips", {}) for c in session["clips"][th]]
@@ -393,8 +408,10 @@ def retarget(folder: str, theme: str, target: float, progress=None) -> dict:
     except Exception:
         pass
     session["clips"][theme] = clips
+    if theme not in session.get("themes", []):          # ex. vidéo YouTube demandée sur un live déjà analysé
+        session["themes"] = [*session.get("themes", []), theme]
     session["targets"] = {**(session.get("targets") or {}), theme: float(target)}
-    session["target"] = max(session["targets"].values())
+    session["target"] = max(v for k, v in session["targets"].items() if not THEMES.get(k, {}).get("long"))
     with open(os.path.join(folder, "session.json"), "w", encoding="utf-8") as f:
         json.dump(session, f, ensure_ascii=False, indent=1)
     report(1.0, "Terminé")

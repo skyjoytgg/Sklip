@@ -27,6 +27,8 @@ function initProject(session) {
   const bgm = (session.previous && session.previous.bgm) || session.bgm || undefined;   // musique libre (Réglages)
   const styled = S.applyStyle(M.createProject({ clips, streamDuration: session.stream.duration, fmt: '9x16', bgm }), session.style);
   const p = { ...styled.project, learned: styled.changes };
+  // Vidéo YouTube : 16:9, commence par le Just Chatting (pas de teaser), sous-titres coupés (Sky 28/11).
+  if (M.isLongTheme(session.theme)) return M.attachReactions(M.carryChoices(M.asYoutube(p, session.theme), session.previous), session.reactions);
   // Montage refait (durée changée, réanalyse) : tes choix de l'ancien montage sont repris.
   const q = M.carryChoices(S.wantsTeaser(session.style) ? M.setTeaser(p) : p, session.previous);
   return M.attachReactions(q, session.reactions);
@@ -719,7 +721,8 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
         }
       }
       const spec = M.toRenderSpec(project, { video: session.stream.video, output, cam, tracks: session.tracks || {}, post,
-        camManual: ['manual', 'project'].includes(camSource), stickers, musicTracks: musicTracks || [], speech: session.speech });
+        camManual: ['manual', 'project'].includes(camSource), stickers, musicTracks: musicTracks || [], speech: session.speech,
+        channel: session.channel, faces: session.facesDir });
       const res = await api.engine('render', spec);
       setExportState({ fraction: 1, message: 'Montage exporté', output: res.output, post });
     } catch (e) {
@@ -735,12 +738,17 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
           <div>
             <div className="ed-title">{session.stream.title}</div>
             <div className="note row nowrap">Thème :
-              {(session.themes || [session.theme]).length > 1 ? (
-                <select value={session.theme} onChange={(e) => onTheme && onTheme(e.target.value)} style={{ padding: '2px 6px' }}>
-                  {session.themes.map((t) => <option key={t} value={t}>{THEME_LABELS[t] || t}</option>)}</select>
+              {onTheme ? (
+                <select value={session.theme} onChange={(e) => onTheme(e.target.value)} style={{ padding: '2px 6px' }}
+                  title="La vidéo YouTube (8–15 min) est toujours proposée, même si ce live a été analysé avant">
+                  {[...new Set([...(session.themes || [session.theme]), ...M.LONG_THEMES])]
+                    .map((t) => <option key={t} value={t}>{THEME_LABELS[t] || t}</option>)}</select>
               ) : ` ${THEME_LABELS[session.theme] || session.theme}`}
               <span data-tour="duree">· Durée :</span>
-              {onRetarget ? (
+              {M.isLongTheme(session.theme) ? <span style={{ whiteSpace: 'nowrap' }}
+                title={session.theme === 'youtube_partie' ? 'La meilleure partie du live, round par round, sans les temps morts (15 min au plus)'
+                  : '8 à 15 min : Sklip prend tout ce qui est bien dans le live'}>
+                {' '}{durationLabel(Math.round(M.exportDuration(project)))} (auto)</span> : onRetarget ? (
                 <select value={session.target} disabled={retargeting} title="Sklip refait le montage de ce thème à cette durée"
                   onChange={(e) => {
                     const secs = Number(e.target.value);
@@ -762,6 +770,10 @@ export function Editor({ session, onBack, onTheme, onRetarget, showTour, tourSee
               <button key={f} className={project.fmt === f ? 'on' : ''} onClick={() => setProject({ ...project, fmt: f })}>
                 {f.replace('x', ':')}</button>))}
           </div>
+          {project.youtube && (
+            <label className="check nowrap note" title="Ta webcam grossit quelques secondes quand tu réagis (rire, cri, après un ace ou un clutch)">
+              <input type="checkbox" checked={project.camZoom !== false} onChange={(e) => setProject(M.setCamZoom(project, e.target.checked))} />
+              Zoom webcam sur tes réactions</label>)}
           <label className="row nowrap note">BPM
             <input type="number" min="60" max="200" placeholder="—" value={project.bpm || ''} style={{ width: 70 }}
               onChange={(e) => setProject({ ...project, bpm: e.target.value ? Number(e.target.value) : null })} />

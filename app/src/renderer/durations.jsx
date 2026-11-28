@@ -32,6 +32,12 @@ export function ThemeDurations({ settings, set }) {
     <div className="theme-durations">
       {themes.map((t) => {
         const v = themeDuration(settings, t.id);
+        if (t.id === 'youtube' || t.id === 'youtube_partie') return (
+          <div key={t.id} className="td-row">
+            <div className="td-name">{t.label}</div>
+            <div className="note">{t.id === 'youtube' ? '8 à 15 min : Sklip prend tout ce qui est bien dans le live.'
+              : 'La meilleure partie du live, round par round, sans les temps morts (15 min au plus).'}</div>
+          </div>);
         return (
           <div key={t.id} className="td-row">
             <div className="td-name">{t.label}</div>
@@ -45,6 +51,6 @@ export function ThemeDurations({ settings, set }) {
 
 /** Résumé pour l'accueil : « Kills 1 min · Best-of 5 min ». */
 export function durationsSummary(settings) {
-  const short = { kills: 'Kills', drole: 'Drôle', communaute: 'Commu', discussion: 'Discussion', bestof: 'Best-of' };
-  return (settings.themes || []).map((th) => `${short[th] || th} ${durationLabel(themeDuration(settings, th))}`).join(' · ');
+  const short = { kills: 'Kills', drole: 'Drôle', communaute: 'Commu', discussion: 'Discussion', bestof: 'Best-of', youtube: 'YouTube', youtube_partie: 'YouTube (une partie)' };
+  return (settings.themes || []).map((th) => `${short[th] || th} ${th === 'youtube' ? '8–15 min' : th === 'youtube_partie' ? 'auto' : durationLabel(themeDuration(settings, th))}`).join(' · ');
 }

@@ -41,7 +41,7 @@ def cmd_render(p):
                           c.get("moments", []), c.get("words"), c.get("friend"),
                           Rect(*(float(c["cam"][k]) for k in "xywh")) if c.get("cam") else None,
                           (float(c["focus"]["x"]), float(c["focus"]["y"])) if c.get("focus") else None,
-                          c.get("stickers") or [], c.get("fade"))
+                          c.get("stickers") or [], c.get("fade"), c.get("part"))
                for c in p["clips"]],
         cam=Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") and p["cam"].get("enabled", True) else None,
         tracks={k: TrackFile(v["path"], v.get("offset", 0.0)) for k, v in p.get("tracks", {}).items()},
@@ -49,14 +49,49 @@ def cmd_render(p):
         texts=p.get("texts") or {}, subtitles=bool(p.get("subtitles")), auto_mix=p.get("auto_mix", True),
         music_file=p.get("music_file"), music_start=p.get("music_start", 0.0),
         music_volume=p.get("music_volume", 0.8), music=p.get("music") or [], encoder=p.get("encoder"),
-        mic_speech=p.get("mic_speech"),
+        mic_speech=p.get("mic_speech"), cards=bool(p.get("cards")), outro=bool(p.get("outro")),
+        outro_channel=p.get("outro_channel"), cam_zoom=bool(p.get("cam_zoom")),
     )
     out = render_montage(spec, progress=lambda f, msg: emit("progress", fraction=round(f, 3), message=msg))
+    extra = {}
+    if p.get("youtube"):
+        # Vidéo YouTube : description avec chapitres (dans la fiche .json et en .txt) et miniature 1280×720.
+        from . import youtube
+        desc = youtube.description_text(p.get("post"), youtube.chapters(spec.clips, spec.cards), p.get("outro_channel"))
+        txt = str(Path(out).with_suffix("")) + "_description.txt"
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write(desc)
+        extra["description_file"] = txt
+        extra["youtube_description"] = desc
+        # Miniature avec la tête du streamer (bibliothèque « Têtes »), refaisable depuis l'onglet Clips.
+        tp = {"video": spec.video, "cam": p.get("cam") if spec.cam else None, "faces": p.get("faces"),
+              "partie": p.get("theme") == "youtube_partie",
+              "clips": [{"start": c.start, "end": c.end, "moments": c.moments, "part": c.part} for c in spec.clips]}
+        thumb = make_thumbnail({**tp, "output": str(Path(out).with_suffix("")) + "_miniature.jpg", "index": 0})
+        if thumb.get("thumbnail"):
+            extra["thumbnail"] = thumb["thumbnail"]
+            extra["thumbnail_face"] = thumb.get("face")
+        extra["thumbnail_params"] = tp
     if p.get("post"):
         # Fiche de publication à côté de la vidéo : prête pour une future publication automatique.
         with open(Path(out).with_suffix(".json"), "w", encoding="utf-8") as f:
-            json.dump({"video": str(Path(out).resolve()), **p["post"], "published": {}}, f, ensure_ascii=False, indent=1)
-    return {"output": out}
+            json.dump({"video": str(Path(out).resolve()), **p["post"], **extra, "published": {}}, f, ensure_ascii=False, indent=1)
+    return {"output": out, **extra}
+
+
+def make_thumbnail(p):
+    """Miniature YouTube : {video, clips, cam, faces (dossier des têtes), index (quelle tête), partie, output}."""
+    import tempfile
+
+    from . import youtube
+    clips = [RenderClip(c["start"], c["end"], moments=c.get("moments") or [], part=c.get("part")) for c in p["clips"]]
+    cam = Rect(*(float(p["cam"][k]) for k in "xywh")) if p.get("cam") else None
+    spec = MontageSpec(video=p["video"], clips=clips, output=p["output"], fmt="16x9", cam=cam)
+    face = youtube.pick_face(p.get("faces"), youtube.mood_of(youtube.best_moment(clips)), int(p.get("index") or 0))
+    with tempfile.TemporaryDirectory(prefix="sklip_thumb_") as d:
+        out = youtube.thumbnail(spec, p["output"], d, face=face,
+                                lines=youtube.thumb_lines(clips, partie=bool(p.get("partie"))))
+    return {"thumbnail": out, "face": face, "faces": len(youtube.list_faces(p.get("faces")))}
 
 
 def cmd_game_chat(p):
@@ -232,6 +267,7 @@ COMMANDS = {
     "select": cmd_select,
     "retarget": cmd_retarget,
     "render": cmd_render,
+    "thumbnail": make_thumbnail,
     "sync": lambda p: sync_track(p["video"], p["track"]),
     "bpm": lambda p: detect_bpm_file(p["path"]),
     "stream-folder": cmd_stream_folder,

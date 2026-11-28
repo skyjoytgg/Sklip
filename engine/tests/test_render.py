@@ -126,6 +126,17 @@ def test_garder_la_musique_du_live_sur_un_clip(fake_stream, tmp_path):
     assert _energy_at(str(out), 500, 3.5, 2) > 0.1      # le micro reste là
 
 
+def test_sklip_ouvert_pendant_l_enregistrement(fake_stream, tmp_path):
+    """Pistes captées à partir de 12 s (Sklip ouvert en retard) : avant, le son mixé de la vidéo (440 Hz)."""
+    late = {k: TrackFile(t.path, offset=12.0) for k, t in fake_stream["tracks"].items()}
+    out = tmp_path / "late.mp4"
+    render_montage(MontageSpec(video=fake_stream["video"], output=str(out), fmt="16x9", encoder="libx264",
+                               tracks=late, clips=[RenderClip(3, 6), RenderClip(15, 18)], auto_mix=False))
+    assert _energy_at(str(out), 440, 0.5, 2) > 0.1       # clip d'avant : le son de la vidéo, pas du silence
+    assert _energy_at(str(out), 300, 3.5, 2) > 0.1       # clip d'après : les pistes séparées (jeu)
+    assert _energy_at(str(out), 440, 3.5, 2) < 0.01
+
+
 def test_musique_ajoutee_coupee_pendant_la_musique_du_live(fake_stream):
     from sklip_engine.render import added_music_volume, live_music_ranges
     spec = MontageSpec(video="v", output="o", tracks=fake_stream["tracks"],

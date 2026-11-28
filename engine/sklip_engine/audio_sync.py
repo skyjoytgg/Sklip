@@ -60,16 +60,18 @@ def find_offset(reference: np.ndarray, track: np.ndarray, rate: int = SYNC_RATE,
 
 
 def sync_track(video_path: str, track_path: str, probe_start: float = 60.0, probe_len: float = 60.0,
-               max_offset: float = 120.0) -> dict:
+               max_offset: float = 120.0, guess: float = 0.0) -> dict:
     """Calcule le décalage d'une piste Sklip par rapport à l'enregistrement OBS.
 
     On compare un extrait de la vidéo (après le début, pour éviter le silence d'intro)
-    à un extrait plus large de la piste.
+    à un extrait plus large de la piste. `guess` : décalage donné par les horloges (Sklip ouvert pendant
+    l'enregistrement : la piste commence `guess` secondes après la vidéo) ; on cherche autour.
     """
-    ref = load_audio(video_path, start=probe_start, duration=probe_len)
-    trk_start = max(0.0, probe_start - max_offset)
+    v0 = probe_start + max(0.0, guess)               # un passage de la vidéo que la piste contient
+    ref = load_audio(video_path, start=v0, duration=probe_len)
+    trk_start = max(0.0, v0 - guess - max_offset)
     trk = load_audio(track_path, start=trk_start, duration=probe_len + 2 * max_offset)
     lag, conf = find_offset(ref, trk, max_offset=probe_len + 2 * max_offset)
-    # ref[i] ≈ trk[i - lag]  →  vidéo(probe_start + i/r) = piste(trk_start + i/r - lag)
-    offset = probe_start - (trk_start - lag)
+    # ref[i] ≈ trk[i - lag]  →  vidéo(v0 + i/r) = piste(trk_start + i/r - lag)
+    offset = v0 - (trk_start - lag)
     return {"offset": round(float(offset), 4), "confidence": round(conf, 3)}

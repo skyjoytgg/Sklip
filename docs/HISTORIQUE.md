@@ -736,3 +736,33 @@ des potes habituels). Il a aussi demandé : et les joueurs qui parlent dans le v
     Démarrer, `studio-apps.js`, `--app-launch-url-for-shortcuts-menu-item` = page d'envoi), sinon le site. Copie
     « titre + hashtags », « Titre » ou « Hashtags » ; titre proposé pour les vieux clips sans fiche.
   - Tuto v6 : toutes ces nouveautés.
+- **v0.1.12 (28/11)** — **Vidéos YouTube** — Sky : « commencer à travailler la version YouTube ». Ses choix :
+  26/11 1A 2C 3C 4AB 5 ; 28/11 : pas de teaser (elle commence par du Just Chatting), sous-titres coupés, export auto.
+  Puis, inspiré d'une vidéo de Goomsii (« LE meilleur TRIO sur Valorant ??? », monteur pro : une partie racontée
+  round par round, plans de ~4 s, coupes sèches, zoom sur la facecam, 15 s « Abonne-toi » noires, miniature avec sa
+  tête détourée) : A oui, B oui (activable), C oui, D oui, E oui + bibliothèque de têtes, F oui.
+  - Thème **« youtube »** (best-of du live 8–15 min, `youtube.select_long`) et **« youtube_partie »** (A : la
+    meilleure partie, `youtube.select_game` : par round, de 6 s avant la première action — kill, mort, clutch,
+    le streamer qui parle — à 3 s après la dernière, trou de plus de 15 s coupé ; resserré jusqu'à 12 min ; puis
+    VICTOIRE / DÉFAITE + RR). Ajoutés tout seuls aux lives longs, en 16:9 seulement.
+  - Les parties du live : les rounds du bandeau (`rounds_from_scores`). sur le live du 28/11, des parties de 9 rounds et une de 20 ;
+    la bannière de fin tombe pendant le dernier round lu, avant la partie suivante (`youtube._games`).
+  - C : `clip.part` (« game:3 » / « talk ») ; écran « PARTIE 2 » / « LA PARTIE » / « LE MOT DE LA FIN » (1,2 s +
+    swoosh) seulement quand on change de partie, coupes sèches sinon (fade 0).
+  - B : `youtube.reaction_zooms` (rires, cris, morts drôles, juste après un ace / clutch / 3 kills) → la webcam
+    grossit 2,4× (bord violet) dans son coin ; case « Zoom webcam sur tes réactions » (cochée par défaut).
+  - D : 15 s de fin, « ABONNE-TOI » en haut, « et rejoins-moi en live sur Twitch » + twitch.tv/<chaîne> en bas, le
+    milieu libre pour les écrans de fin de YouTube Studio. Le lien Twitch aussi dans la description.
+  - E : miniature 1280×720 : image du meilleur moment, tête détourée de **Documents/Sklip/Têtes** (rire.png,
+    choc.png, content.png, rage.png… choisie selon le meilleur moment ; LISEZ-MOI : Paint « Supprimer
+    l'arrière-plan »), sinon la webcam ; deux lignes blanc / jaune. Onglet Clips : « 🔀 Autre tête », « 📁 Mes têtes »
+    (commande moteur `thumbnail`, paramètres gardés dans la fiche .json).
+  - F : Just Chatting du début en ouverture et de la fin en conclusion (`intro_span` / `outro_span`, 45 s où le
+    streamer parle le plus s'il n'y a pas de moment).
+  - Tuto v7.
+  - **Sklip ouvert pendant l'enregistrement** — Sky : « si je lance Sklip après avoir lancé le
+    stream, ça marche ? ». Avant : seulement l'analyse de fin (pas de pistes séparées, F9 ni Twitch). Maintenant, à la
+    connexion, `obs-watcher` lit `GetRecordStatus` (lecture seule, `outputDuration`) et émet `recordStarted` avec
+    l'heure du vrai début (`late: true`) : capture audio, F9, Twitch, scènes et journal à partir de là. Une simple
+    reconnexion à OBS pendant un enregistrement déjà suivi ne change rien. Moteur : le calage des pistes cherche au bon
+    endroit (`sync_track(guess=…)`), et un clip d'avant les pistes prend le son mixé de la vidéo (`render.LATE_TRACKS`).

@@ -56,7 +56,8 @@ const mock = (() => {
       { file: 'C:/demo/Neon Tears.mp3', title: 'Neon Tears', artist: 'Pack Sklip', duration: 128 },
       { file: 'C:/demo/Afterhours.mp3', title: 'Afterhours', artist: 'Pack Sklip', duration: 175 },
     ],
-    openMusicFolder: noop,
+    openMusicFolder: noop, openFacesFolder: noop, listFaces: async () => ['choc.png', 'rire.png'],
+    redoThumbnail: async () => ({ thumbnail: null, face: 'C:/demo/rire.png', faces: 2 }),
     listStreams: async () => [
       { name: '2026-11-24_ranked-avec-les-potes', title: 'Ranked avec les potes', folder: '',
         stats: { kills: 87, aces: 1, raids: [{ channel: 'Kamel', viewers: 42 }], peak_viewers: 134 } },

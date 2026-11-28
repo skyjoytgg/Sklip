@@ -8,6 +8,17 @@ const when = (ms) => new Date(ms).toLocaleString('fr-FR', { day: 'numeric', mont
 
 function ClipCard({ c, onPosted }) {
   const [copied, setCopied] = useState(null);
+  const [thumb, setThumb] = useState({ file: c.thumbnail, v: 0, index: c.thumbnailIndex || 0, busy: false, note: '' });
+  // « Autre tête » : la miniature refaite avec la tête suivante de « Mes têtes ».
+  const otherFace = async () => {
+    setThumb((t) => ({ ...t, busy: true }));
+    try {
+      const r = await api.redoThumbnail(c.file, thumb.index + 1);
+      const name = r && r.face ? r.face.split(/[\\/]/).pop() : '';
+      setThumb((t) => ({ file: (r && r.thumbnail) || t.file, v: t.v + 1, index: t.index + 1, busy: false,
+        note: r && !r.faces ? 'Aucune photo dans « Mes têtes » : ta webcam est utilisée.' : name ? `Tête : ${name}` : '' }));
+    } catch { setThumb((t) => ({ ...t, busy: false, note: 'Miniature pas refaite.' })); }
+  };
   // Fiche absente (vieil export) : titre et hashtags proposés d'après le thème, comme à l'export.
   const post = c.post || M.suggestPost({ clips: [], fmt: c.fmt || '9x16' }, { theme: c.theme || 'kills' });
   const tags = post.hashtags.join(' ');
@@ -35,6 +46,25 @@ function ClipCard({ c, onPosted }) {
             onClick={() => copy('tags', tags)}>{copied === 'tags' ? 'Copié ✓' : 'Hashtags'}</button>
           <button className="btn ghost sm" onClick={() => api.showClip(c.file)}>Dossier</button>
         </div>
+        {(post.description || thumb.file) && (
+          <div className="cc-yt">
+            {thumb.file && <img src={`file:///${thumb.file}?v=${thumb.v}`} alt="Miniature" draggable
+              title="Miniature 1280×720 : glisse-la dans YouTube Studio (« Importer une miniature »)"
+              onDragStart={(e) => { e.preventDefault(); api.dragClip(thumb.file); }} />}
+            <div>
+              {post.description && <button className="btn sm" title="Titre, chapitres (0:00 Début du live…) et hashtags, pour la description YouTube"
+                onClick={() => copy('desc', post.description)}>{copied === 'desc' ? 'Copié ✓' : 'Copier la description + chapitres'}</button>}
+              {thumb.file && <div className="note">Miniature : glisse-la dans YouTube Studio.</div>}
+              {c.canRedoThumbnail && (
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button className="btn ghost sm" disabled={thumb.busy} onClick={otherFace}
+                    title="Refait la miniature avec une autre photo de « Mes têtes »">{thumb.busy ? 'Miniature…' : '🔀 Autre tête'}</button>
+                  <button className="btn ghost sm" onClick={() => api.openFacesFolder()}
+                    title="Mets-y des photos détourées de ta tête (rire.png, choc.png…) : la note du dossier explique comment">📁 Mes têtes</button>
+                </div>)}
+              {thumb.note && <div className="note">{thumb.note}</div>}
+            </div>
+          </div>)}
         <label className="check" style={{ marginTop: 8 }}>
           <input type="checkbox" checked={c.posted} onChange={(e) => onPosted(c, e.target.checked)} /> Déjà posté
         </label>

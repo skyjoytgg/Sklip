@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const THEME_NAMES = { kills: 'Kills', drole: 'Drôle', communaute: 'Communauté', discussion: 'Discussion', bestof: 'Best-of' };
+const THEME_NAMES = { kills: 'Kills', drole: 'Drôle', communaute: 'Communauté', discussion: 'Discussion', bestof: 'Best-of', youtube: 'Vidéo YouTube', youtube_partie: 'YouTube : une partie' };
 
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
@@ -31,7 +31,10 @@ function listClips(root) {
         file, name: f, folder, stream: stats.title || name, day: name.slice(0, 10),
         theme: m ? m[1] : null, themeName: m ? THEME_NAMES[m[1]] || m[1] : null, fmt: m ? m[2] : null,
         size: st.size, mtime: st.mtimeMs,
-        post: post && post.title ? { title: post.title, hashtags: post.hashtags || [] } : null,
+        post: post && post.title ? { title: post.title, hashtags: post.hashtags || [], ...(post.youtube_description ? { description: post.youtube_description } : {}) } : null,
+        thumbnail: post && post.thumbnail && fs.existsSync(post.thumbnail) ? post.thumbnail : null,
+        thumbnailIndex: (post && post.thumbnail_index) || 0,
+        canRedoThumbnail: !!(post && post.thumbnail_params),
         posted: !!(post && post.published && post.published.manual),
       });
     }

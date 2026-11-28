@@ -140,6 +140,12 @@ class ObsWatcher extends EventEmitter {
     this.state.streaming = !!stream.outputActive;
     this.state.recording = !!record.outputActive;
     this.emit('state', { ...this.state });
+    // Sklip ouvert (ou OBS reconnecté) pendant l'enregistrement : on le prend en route. OBS dit depuis combien de
+    // temps il enregistre (lecture seule) ; c'est l'heure de début qui cale les moments sur la vidéo.
+    if (record.outputActive) {
+      const ms = Number(record.outputDuration) || 0;
+      this.emit('recordStarted', { at: Date.now() - ms, late: true, since: ms });
+    }
   }
 
   _onEvent(type, data) {

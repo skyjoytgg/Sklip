@@ -80,6 +80,7 @@ class RenderClip:
     stickers: list = field(default_factory=list)  # images posées sur la vidéo (bulle du chat, agent…), voir sticker_filter
     fade: float | None = None                     # fondu de ce clip (None = celui du montage). 0 : coupe franche
                                                   # (coupes du teaser : un fondu au noir ferait une pause entre les kills)
+    part: str | None = None                       # vidéo YouTube : « game:3 » / « talk » (écran entre deux parties)
 
 
 @dataclass
@@ -109,6 +110,10 @@ class MontageSpec:
     texts: dict = field(default_factory=dict)      # {"enabled", "ace", "killCounter", "pseudo"}
     subtitles: bool = False                         # sous-titres auto mot par mot (français)
     auto_mix: bool = True                           # niveaux cohérents + voix devant + volume final -14 LUFS
+    cards: bool = False                             # écran de transition + swoosh avant chaque clip (vidéo YouTube)
+    outro: bool = False                             # « Abonne-toi » et la chaîne Twitch à la fin (15 s)
+    outro_channel: str | None = None                # chaîne Twitch affichée sur la fin
+    cam_zoom: bool = False                          # vidéo YouTube : la webcam grossit quand le streamer réagit
 
 
 def probe(path: str) -> dict:
@@ -169,7 +174,7 @@ def sticker_filter(inp: str, s: dict, k: int, last: str) -> tuple[str, str]:
 def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps: int,
                  dur: float, fade: float, post: str = "", friend: dict | None = None,
                  friend_input: str | None = None, friend_delay: float = 0.0, focus: tuple | None = None,
-                 stickers: list | None = None) -> str:
+                 stickers: list | None = None, zooms: list | None = None) -> str:
     """Graphe vidéo pour un clip. Entrée [0:v], sortie [v]. `post` : filtre ajouté après la mise en page
     (ex. incrustation des sous-titres). `friend` : réaction d'un pote (entrée `friend_input`)."""
     tail = [post] if post else []
@@ -177,6 +182,11 @@ def video_filter(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None
         tail += [f"fade=t=in:st=0:d={fade}", f"fade=t=out:st={dur - fade:.3f}:d={fade}"]
     base = _layout(fmt, layout, src_w, src_h, cam, fps, focus)
     last = "[lay]"
+    if zooms and cam is not None and fmt == "16x9":
+        from .youtube import cam_zoom_filter
+        base = "[0:v]split=2[zsrc][zcam];" + base.replace("[0:v]", "[zsrc]", 1)
+        chain, last = cam_zoom_filter(cam, src_w, src_h, zooms, "[zcam]", last)
+        base += ";" + chain
     if friend and friend_input:
         chain, last = friend_filter(fmt, layout, friend, friend_input, friend_delay)
         base += ";" + chain
@@ -225,6 +235,9 @@ def _layout(fmt: str, layout: str, src_w: int, src_h: int, cam: Rect | None, fps
             f"{order}vstack=inputs=2,setsar=1,fps={fps}[lay]")
 
 
+LATE_TRACKS = 2.0            # clip qui commence plus de 2 s avant les pistes Sklip : son mixé de la vidéo
+
+
 def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str, ass_file: str | None = None) -> list[str]:
     dur = clip.end - clip.start
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{clip.start:.3f}", "-t", f"{dur:.3f}", "-i", spec.video]
@@ -232,7 +245,12 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
     audio_parts, labels = [], []
 
     active = [(name, tf) for name, tf in spec.tracks.items() if name in TRACKS and vols.get(name, 0) > 0]
-    if spec.tracks:
+    # Clip d'avant le début des pistes (Sklip ouvert pendant l'enregistrement) : le son mixé de la vidéo.
+    if spec.tracks and any(clip.start - tf.offset < -LATE_TRACKS for _, tf in spec.tracks.items()):
+        active, use_tracks = [], False
+    else:
+        use_tracks = bool(spec.tracks)
+    if use_tracks:
         named = {}
         for i, (name, tf) in enumerate(active, start=1):
             track_t = clip.start - tf.offset         # instant correspondant dans la piste Sklip
@@ -281,9 +299,15 @@ def _clip_cmd(spec: MontageSpec, clip: RenderClip, src: dict, out: str, enc: str
         if s.get("file") and os.path.exists(s["file"]) and float(s["end"]) > float(s["start"]):
             stickers.append((f"[{cmd.count('-i')}:v]", s))
             cmd += ["-loop", "1", "-framerate", str(spec.fps), "-t", f"{dur:.3f}", "-i", s["file"]]
-    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], clip.cam or spec.cam, spec.fps, dur, vfade,
+    zooms = None
+    cam = clip.cam or spec.cam
+    if spec.cam_zoom and spec.fmt == "16x9" and cam is not None and cam.w < 0.4:   # webcam déjà en grand : rien
+        from .youtube import reaction_zooms
+        zooms = reaction_zooms(clip.moments, clip.start, clip.end)
+    vf = video_filter(spec.fmt, clip.layout, src["width"], src["height"], cam, spec.fps, dur, vfade,
                       post=ass_filter(ass_file) if ass_file else "", friend=clip.friend if friend_input else None,
-                      friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus, stickers=stickers)
+                      friend_input=friend_input, friend_delay=friend_delay, focus=clip.focus, stickers=stickers,
+                      zooms=zooms)
     cmd += ["-filter_complex", vf + ";" + ";".join(audio_parts), "-map", "[v]", "-map", "[a]",
             *encoder_args(enc), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out]
     return cmd
@@ -378,6 +402,16 @@ def music_inputs(spec: MontageSpec, total: float, first_input: int = 1) -> tuple
 PARALLEL = 2                 # clips préparés en même temps à l'export (au-delà, la carte graphique sature)
 
 
+def montage_duration(spec: MontageSpec) -> float:
+    """Durée de la vidéo finale : les clips, plus les écrans de transition et la fin de la vidéo YouTube."""
+    total = sum(c.end - c.start for c in spec.clips)
+    if spec.cards or spec.outro:
+        from . import youtube
+        total += youtube.CARD_DUR * sum(1 for i in range(len(spec.clips)) if youtube.has_card(spec.clips, i, spec.cards))
+        total += youtube.OUTRO_DUR if spec.outro else 0.0
+    return total
+
+
 def render_montage(spec: MontageSpec, progress=None) -> str:
     """Rend chaque clip puis les assemble. `progress(fraction, message)` est appelé au fil du rendu."""
     if not spec.clips:
@@ -390,6 +424,36 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
         parts = [os.path.join(tmp, f"part_{i:03d}.mp4") for i in range(len(spec.clips))]
         done = [0]
         lock = threading.Lock()
+        # Vidéo YouTube : écran de transition quand on change de partie, « Abonne-toi » (15 s) à la fin.
+        extras: list[tuple[int | None, str, list[str]]] = []      # (clip qu'il précède | None = fin, fichier, commande)
+        if spec.cards or spec.outro:
+            from . import youtube
+            for i, clip in enumerate(spec.clips):
+                if not youtube.has_card(spec.clips, i, spec.cards):
+                    continue
+                a = os.path.join(tmp, f"card_{i:03d}.ass")
+                with open(a, "w", encoding="utf-8") as f:
+                    f.write(youtube.card_ass(spec.fmt, *youtube.part_card(spec.clips, i)))
+                out = os.path.join(tmp, f"card_{i:03d}.mp4")
+                extras.append((i, out, youtube.still_cmd(spec, clip, src, clip.start, out, enc, a, youtube.CARD_DUR)))
+            if spec.outro:
+                last = spec.clips[-1]
+                a = os.path.join(tmp, "outro.ass")
+                with open(a, "w", encoding="utf-8") as f:
+                    f.write(youtube.outro_ass(spec.fmt, channel=spec.outro_channel))
+                out = os.path.join(tmp, "outro.mp4")
+                extras.append((None, out, youtube.still_cmd(spec, last, src, last.end - 0.2, out, enc, a, youtube.OUTRO_DUR)))
+        n_jobs = len(spec.clips) + len(extras)
+
+        def extra(cmd: list[str]) -> None:
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode != 0 and enc != "libx264":
+                r = subprocess.run([*cmd[:cmd.index("-c:v")], *encoder_args("libx264"), *cmd[cmd.index("-c:a"):]],
+                                   capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(f"FFmpeg a échoué sur un écran de transition : {r.stderr[-800:]}")
+            with lock:
+                done[0] += 1
 
         def one(i: int) -> None:
             clip = spec.clips[i]
@@ -403,14 +467,18 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
             with lock:
                 done[0] += 1
                 if progress:
-                    progress(done[0] / (len(spec.clips) + 1), f"Clip {done[0]}/{len(spec.clips)}")
+                    progress(done[0] / (n_jobs + 1), f"Clip {done[0]}/{len(spec.clips)}")
 
         # Plusieurs clips préparés en même temps : le décodage de la vidéo du stream et les filtres tournent
         # sur le processeur, l'encodage sur la carte graphique ; à 3 à la fois, tout le PC travaille.
         workers = max(1, min(PARALLEL, len(spec.clips)))
         with ThreadPoolExecutor(workers) as pool:
-            for f in [pool.submit(one, i) for i in range(len(spec.clips))]:
+            jobs = [pool.submit(one, i) for i in range(len(spec.clips))] + [pool.submit(extra, c) for _, _, c in extras]
+            for f in jobs:
                 f.result()
+        before = {i: out for i, out, _ in extras if i is not None}
+        parts = [q for i, part in enumerate(parts) for q in ([before[i]] if i in before else []) + [part]]
+        parts += [out for i, out, _ in extras if i is None]
         listing = os.path.join(tmp, "list.txt")
         with open(listing, "w", encoding="utf-8") as f:
             for p in parts:
@@ -421,7 +489,7 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
                         "-c", "copy", "-movflags", "+faststart", joined], check=True, capture_output=True)
         if playlist:
-            total = sum(c.end - c.start for c in spec.clips)
+            total = montage_duration(spec)
             margs, mfilter = music_inputs(spec, total)
             vol = added_music_volume(spec)
             mix = (f"{mfilter};[mus]{vol}[m0];[0:a]asplit[a0][k];"
@@ -434,7 +502,7 @@ def render_montage(spec: MontageSpec, progress=None) -> str:
                 raise RuntimeError(f"FFmpeg a échoué en ajoutant la musique : {r.stderr[-800:]}")
         if spec.auto_mix:
             if progress:
-                progress(len(spec.clips) / (len(spec.clips) + 1), "Réglage du volume final")
+                progress(n_jobs / (n_jobs + 1), "Réglage du volume final")
             if mixing.normalize_loudness(final, spec.output) is None:
                 shutil.copyfile(final, spec.output)
         if progress:
@@ -451,7 +519,7 @@ def _subtitle_words(spec: MontageSpec, clip: RenderClip) -> list[Word]:
         return []
     # Piste micro séparée si disponible (meilleure reconnaissance), sinon son mixé de la vidéo.
     mic = spec.tracks.get("mic")
-    if mic:
+    if mic and clip.start >= mic.offset - LATE_TRACKS:    # pas avant le début de la piste (Sklip ouvert en retard)
         start = clip.start - mic.offset
         return transcribe(mic.path, max(0.0, start), clip.end - mic.offset)
     return transcribe(spec.video, clip.start, clip.end)

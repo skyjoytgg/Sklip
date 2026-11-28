@@ -53,6 +53,12 @@ THEMES: dict[str, dict] = {
                          "marker", "viewer_clip", "viewer_peak", "victory", "defeat", "rr"]},
 }
 
+# Vidéo YouTube longue (8 à 15 min, 16:9) : tout ce qui est bien, dans l'ordre du live, Just Chatting du début en
+# premier (voir youtube.py). Ajoutée toute seule aux lives assez longs, comme le best-of.
+THEMES["youtube"] = {"label": "Vidéo YouTube (8–15 min)", "long": True, "types": THEMES["bestof"]["types"]}
+THEMES["youtube_partie"] = {"label": "Vidéo YouTube : une partie", "long": True,
+                            "types": THEMES["bestof"]["types"]}
+
 BESTOF_MIN_DURATION = 45 * 60    # le best-of est ajouté aux lives d'au moins 45 min…
 BESTOF_MIN_MOMENTS = 10          # … qui ont au moins 10 moments
 
@@ -100,6 +106,7 @@ class Clip:
     moments: list[Moment]
     layout: str = "cam_top"       # mise en page 9:16, modifiable clip par clip
     volumes: dict = field(default_factory=dict)  # surcharge par clip : {"game": 1.0, "mic": 1.0, ...}
+    part: str | None = None       # vidéo YouTube : « game:3 » (partie n° 3) ou « talk » (Just Chatting)
 
     @property
     def duration(self) -> float:
@@ -109,12 +116,17 @@ class Clip:
     def score(self) -> float:
         # Le meilleur moment compte plein, les autres comptent un peu.
         scores = sorted((m.score for m in self.moments), reverse=True)
+        if not scores:                       # passage sans moment (ex. Just Chatting du début de la vidéo YouTube)
+            return 0.0
         return scores[0] + 0.25 * sum(scores[1:])
 
     def to_dict(self) -> dict:
-        return {"start": round(self.start, 3), "end": round(self.end, 3), "layout": self.layout,
-                "volumes": self.volumes, "score": round(self.score, 1),
-                "moments": [m.to_dict() for m in self.moments]}
+        d = {"start": round(self.start, 3), "end": round(self.end, 3), "layout": self.layout,
+             "volumes": self.volumes, "score": round(self.score, 1),
+             "moments": [m.to_dict() for m in self.moments]}
+        if self.part:
+            d["part"] = self.part
+        return d
 
 
 def moments_to_clips(moments: Iterable[Moment], pre: float = PRE_ROLL, post: float = POST_ROLL,

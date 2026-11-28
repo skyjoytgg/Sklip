@@ -48,12 +48,14 @@ export const EDITOR_TOUR = [
     text: 'Quand ça te plaît, clique « Exporter ». La vidéo arrive dans le dossier de ton stream, prête à poster. À toi de jouer !' },
   { target: 'export', since: 4, title: 'Titre et hashtags',
     text: "Après l'export, Sklip te propose un titre et des hashtags : « Copier titre + hashtags » puis colle-les sur TikTok ou YouTube. Dans les Réglages, tu peux aussi faire exporter tes montages tout seuls à la fin du live." },
+  { target: 'duree', since: 7, title: 'Tes vidéos YouTube',
+    text: "Dans « Thème », deux vidéos YouTube en 16:9 : « Vidéo YouTube » (le best-of du live, 8 à 15 min) et « Une partie » (ta meilleure partie racontée round par round, sans les temps morts). Elles commencent et finissent par ton Just Chatting, avec un écran « PARTIE 2 » quand on change de partie, ta webcam qui grossit quand tu réagis (case « Zoom webcam »), 15 s « Abonne-toi » à la fin, la description avec chapitres et une miniature avec ta tête : mets tes photos dans « 📁 Mes têtes » (onglet Clips)." },
   { target: 'export', since: 6, title: "L'onglet Clips",
     text: "Tes vidéos exportées t'attendent dans l'onglet « Clips » (colonne de gauche) : ouvre TikTok Studio ou YouTube Studio (l'appli de ton PC si tu l'as installée, sinon le site), glisse la vidéo dans la page d'envoi, copie le titre et les hashtags (ensemble ou séparément), puis coche « Déjà posté »." },
 ];
 
 /** Version du tuto : les étapes `since` plus récentes que ce qu'a vu le streamer lui sont montrées seules. */
-export const TOUR_VERSION = 6;
+export const TOUR_VERSION = 7;
 export function tourSteps(steps, seen) {
   return seen ? steps.filter((s) => (s.since || 1) > seen).map((s) => ({ ...s, title: `Nouveau : ${s.title}` })) : steps;
 }
